@@ -21,4 +21,7 @@ the CFLAGS and LFLAGs lines for libpigpiod in the Makefile and uncomment the cor
 All this assumes you're compiling on the Raspberry Pi itself, but the Makefile can be easily modified to cross-compile, e.g., 
 with a buildroot toolchain.
 
+All code in this repository is Copyright 2021 by Glenn Butcher, all rights reserved.  However, I license its use under the MIT 
+License.
+
 Have Fun!
