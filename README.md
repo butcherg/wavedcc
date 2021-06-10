@@ -7,7 +7,7 @@ to intialize, parse and execute commands, and terminate DCC functions.  wavedcc.
 and TCP interface, respectively.  The message format is the DCC++-EX specification, but you can leave out the < and >.
 
 The initial commit just implements the NMRA S9.2 Baseline packets.  Also, only operations mode is implemented at present, but
-the infrastructure to to programming mode is present.  And, the pulse train builder for speed/direction packets only recognizes 
+the infrastructure to do programming mode is present.  And, the pulse train builder for speed/direction packets only recognizes 
 14-step mode.
 
 At the PI GPIOs, a bipolar interface is implemented with two output pins.  There is also a separate enable pin for L298-style 
