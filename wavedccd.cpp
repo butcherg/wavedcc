@@ -111,6 +111,10 @@ void del_from_pfds(struct pollfd pfds[], int i, int *fd_count)
 int main(void)
 {
     std::string initresult = dccInit();
+    if (initresult.find("Error") != std::string::npos) {
+    	printf("%s\n",initresult.c_str());
+        exit(1);
+    }
 
     int listener;     // Listening socket descriptor
 

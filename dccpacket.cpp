@@ -26,28 +26,262 @@ DCCPacket::DCCPacket(const DCCPacket &o)
 DCCPacket DCCPacket::makeBaselineIdlePacket(int pinA, int pinB)
 {
 	DCCPacket p(pinA, pinB);
-	p.loadBaselineIdlePacket();
+	
+	//preamble:
+	p.addPreamble();
+	
+	//packet start bit:
+	p.addDelimiter(0);
+	
+	//idle address:
+	for (unsigned i=1; i<=8; i++) p.addOne();
+	
+	//address end bit:
+	p.addDelimiter(0);
+	 
+	//no data:
+	for (unsigned i=1; i<=8; i++) p.addZero();
+
+	//data end bit:
+	p.addDelimiter(0);
+        
+	//idle packet checksum:
+	for (unsigned i=1; i<=8; i++) p.addOne();
+
+	//packet end bit:
+	p.addDelimiter(1);
+
+//	printf("%s\n", p.getPulseString().c_str());
 	return p;
 }
 
-DCCPacket DCCPacket::makeBaselineSpeedDirPacket(int pinA, int pinB, unsigned address, unsigned direction, unsigned  speed, bool headlight)
+
+DCCPacket DCCPacket::makeBaselineSpeedDirPacket(int pinA, int pinB, unsigned address, unsigned direction, unsigned  speed, bool headlight, SPEED_STEPS steps)
 {
 	DCCPacket p(pinA, pinB);
-	p.loadBaselineSpeedDirPacket(address, direction, speed, headlight);
+
+	if (speed > 28) speed = 28;
+	if (speed < 0)  speed =  0;
+	if (direction > 1) direction = 1;
+	
+	//reset checksum accumulator
+	p.resetCK();
+	
+	//preamble:
+	p.addPreamble();
+
+	//address start bit:
+	p.addDelimiter(0);
+
+	//address (7 bits):
+	p.resetBT();
+	p.addZero();
+	if ((address & 0b01000000) >> 6) p.addOne(); else p.addZero();
+	if ((address & 0b00100000) >> 5) p.addOne(); else p.addZero();
+	if ((address & 0b00010000) >> 4) p.addOne(); else p.addZero();
+	if ((address & 0b00001000) >> 3) p.addOne(); else p.addZero();
+	if ((address & 0b00000100) >> 2) p.addOne(); else p.addZero();
+	if ((address & 0b00000010) >> 1) p.addOne(); else p.addZero();
+	if ((address & 0b00000001)) p.addOne(); else p.addZero();
+	p.accumulateCK();
+
+	//data start bit:
+	p.addDelimiter(0);
+
+	//data:
+	p.resetBT();
+	p.addZero();
+	p.addOne();
+	if (direction) p.addOne(); else p.addZero();
+	if (speed > 0) speed+=3; //gets around stop values, 10000 - 10001
+	if ((speed & 0b00000001)) p.addOne(); else p.addZero();
+	if ((speed & 0b00010000) >> 4) p.addOne(); else p.addZero();
+	if ((speed & 0b00001000) >> 3) p.addOne(); else p.addZero();
+	if ((speed & 0b00000100) >> 2) p.addOne(); else p.addZero();
+	if ((speed & 0b00000010) >> 1) p.addOne(); else p.addZero();
+	p.accumulateCK();
+
+	//checksum start bit:
+	p.addDelimiter(0);
+
+	//checksum:
+	p.addCK(); 
+
+	//packet end bit:
+	p.addDelimiter(1);
+	
+//	printf("%d: %s\n", speed, p.getPulseString().c_str());
 	return p;
 }
+
 
 DCCPacket DCCPacket::makeBaselineResetPacket(int pinA, int pinB)
 {
 	DCCPacket p(pinA, pinB);
-	p.loadBaselineResetPacket();
+	
+	//preamble:
+	p.addPreamble();
+
+	//packet start bit:
+	p.addDelimiter(0);
+        
+	//address:
+	for (unsigned i=1; i<=8; i++) p.addZero();
+	p.addDelimiter(0);
+        
+	//data:
+	for (unsigned i=1; i<=8; i++) p.addZero();
+	p.addDelimiter(0);
+
+	//checksum:
+	for (unsigned i=1; i<=8; i++) p.addZero();
+	p.addDelimiter(1);
+
+//	printf("%s\n", p.getPulseString().c_str());
 	return p;
 }
 
 DCCPacket DCCPacket::makeBaselineBroadcastStopPacket(int pinA, int pinB, BASE_STOP stopcommand)
 {
 	DCCPacket p(pinA, pinB);
-	p.loadBaselineBroadcastStopPacket(stopcommand);
+	
+	const char stops[][5] = {{1,0,0,0,0}, {0,0,0,0,1}, {1,0,0,0,1}};
+	p.resetCK();
+
+	//preamble:
+	p.addPreamble();
+
+	//packet start bit:
+	p.addDelimiter(0);
+
+	//address:
+	for (unsigned i=1; i<=8; i++) p.addZero();
+	//no need for checksum collection
+	p.addDelimiter(0);
+        
+	//data:
+	p.resetBT();
+	p.addZero();
+	p.addOne();
+	p.addOne(); //direction, don't care for stop commands
+	for (int i=0; i<5; i++)
+		if (stops[stopcommand][i] == '1') p.addOne(); else p.addZero();
+        p.accumulateCK();  //collect the checksum	
+
+	p.addDelimiter(0);        
+
+	//checksum:
+	p.addCK(); 
+
+	p.addDelimiter(1);
+
+//	printf("%s\n", p.getPulseString().c_str());
+	return p;
+}
+
+//Extended packet makers:
+
+DCCPacket DCCPacket::makeWriteCVToAddressPacket(int pinA, int pinB, int address, int CV, char value)
+{
+	DCCPacket p(pinA, pinB);
+	
+	//reset checksum accumulator
+	p.resetCK();
+
+	//preamble:
+	p.addPreamble();
+
+	////////////////////////// Address: 1-2 bytes //////////////////////////////////
+	//packet start bit:
+	p.addDelimiter(0);
+	
+	if ((address >= 1) & (address <= 127)) {  //7-bit address
+		p.resetBT(); //start check byte collection
+		p.addZero();
+		if ((address & 0b01000000) >> 6) p.addOne(); else p.addZero();
+		if ((address & 0b00100000) >> 5) p.addOne(); else p.addZero();
+		if ((address & 0b00010000) >> 4) p.addOne(); else p.addZero();
+		if ((address & 0b00001000) >> 3) p.addOne(); else p.addZero();
+		if ((address & 0b00000100) >> 2) p.addOne(); else p.addZero();
+		if ((address & 0b00000010) >> 1) p.addOne(); else p.addZero();
+		if ((address & 0b00000001)) p.addOne(); else p.addZero();
+		p.accumulateCK();
+	}
+	else if ((address >= 128) & (address <= 191)) { //
+		
+	}
+	else if ((address >= 192) & (address <= 231)) { // 14-bit addresses
+		//to-do: full 14-bit addresses
+		p.resetBT(); //start check byte collection
+		if ((address & 0b10000000) >> 7) p.addOne(); else p.addZero();
+		if ((address & 0b01000000) >> 6) p.addOne(); else p.addZero();
+		if ((address & 0b00100000) >> 5) p.addOne(); else p.addZero();
+		if ((address & 0b00010000) >> 4) p.addOne(); else p.addZero();
+		if ((address & 0b00001000) >> 3) p.addOne(); else p.addZero();
+		if ((address & 0b00000100) >> 2) p.addOne(); else p.addZero();
+		if ((address & 0b00000010) >> 1) p.addOne(); else p.addZero();
+		if ((address & 0b00000001)) p.addOne(); else p.addZero();
+		p.accumulateCK();
+	}
+	
+	
+	////////////////////////// Instruction byte //////////////////////////////////
+	//instruction start bit:
+	p.addDelimiter(0);
+	//start check byte collection
+	p.resetBT();
+	//1110 - Long-form CV access
+	p.addOne();
+	p.addOne();
+	p.addOne();
+	p.addZero();
+	//11 - write CV
+	p.addOne();
+	p.addOne(); 
+	//CV address = CV# - 1:
+	CV--;
+	//CV high bits 9 and 10
+	if ((CV & 0b1000000000) >> 9) p.addOne(); else p.addZero();
+	if ((CV & 0b0100000000) >> 8) p.addOne(); else p.addZero();
+	p.accumulateCK();
+	
+	////////////////////////// CV low byte //////////////////////////////////
+	//CV# start bit:
+	p.addDelimiter(0);
+	//start check byte collection
+	p.resetBT();
+	if ((CV & 0b0010000000) >> 7) p.addOne(); else p.addZero();
+	if ((CV & 0b0001000000) >> 6) p.addOne(); else p.addZero();
+	if ((CV & 0b0000100000) >> 5) p.addOne(); else p.addZero();
+	if ((CV & 0b0000010000) >> 4) p.addOne(); else p.addZero();
+	if ((CV & 0b0000001000) >> 3) p.addOne(); else p.addZero();
+	if ((CV & 0b0000000100) >> 2) p.addOne(); else p.addZero();
+	if ((CV & 0b0000000010) >> 1) p.addOne(); else p.addZero();
+	if ((CV & 0b0000000001)) p.addOne(); else p.addZero();
+	p.accumulateCK();
+	
+	////////////////////////// CV value //////////////////////////////////
+	//CV value start bit:
+	p.addDelimiter(0);
+	p.resetBT(); //start check byte collection
+	if ((value & 0b10000000) >> 7) p.addOne(); else p.addZero();
+	if ((value & 0b01000000) >> 6) p.addOne(); else p.addZero();
+	if ((value & 0b00100000) >> 5) p.addOne(); else p.addZero();
+	if ((value & 0b00010000) >> 4) p.addOne(); else p.addZero();
+	if ((value & 0b00001000) >> 3) p.addOne(); else p.addZero();
+	if ((value & 0b00000100) >> 2) p.addOne(); else p.addZero();
+	if ((value & 0b00000010) >> 1) p.addOne(); else p.addZero();
+	if ((value & 0b00000001)) p.addOne(); else p.addZero();
+	p.accumulateCK();
+	
+	////////////////////////// Checksum //////////////////////////////////
+	p.addDelimiter(0);
+	p.addCK(); 
+	
+	//packet end bit:
+	p.addDelimiter(1);
+
+//	printf("%s\n", p.getPulseString().c_str());
 	return p;
 }
 
@@ -57,243 +291,70 @@ DCCPacket DCCPacket::makeBaselineBroadcastStopPacket(int pinA, int pinB, BASE_ST
 DCCPacket DCCPacket::makeServiceModeDirectPacket(int pinA, int pinB, int CV, char value)
 {
 	DCCPacket p(pinA, pinB);
-	p.loadServiceModeDirectPacket(CV, value);
+	p.resetCK();
+	
+	//long preamble:
+	for (unsigned i=1; i<=20; i++) p.addOne();
+
+	//command, first two bits of CV:
+	p.addDelimiter(0);
+	p.resetBT(); 
+	//0111 - Service Mode Direct
+	p.addZero();
+	p.addOne();
+	p.addOne();
+	p.addOne();
+	//11 - Write byte
+	p.addOne();
+	p.addOne();
+	if ((CV & 0b1000000000) >> 9) p.addOne(); else p.addZero();
+	if ((CV & 0b0100000000) >> 8) p.addOne(); else p.addZero();
+	p.accumulateCK();
+	
+	//last 8 bits of CV:
+	p.addDelimiter(0);
+	p.resetBT(); 
+	if ((CV & 0b0010000000) >> 7) p.addOne(); else p.addZero();
+	if ((CV & 0b0001000000) >> 6) p.addOne(); else p.addZero();
+	if ((CV & 0b0000100000) >> 5) p.addOne(); else p.addZero();
+	if ((CV & 0b0000010000) >> 4) p.addOne(); else p.addZero();
+	if ((CV & 0b0000001000) >> 3) p.addOne(); else p.addZero();
+	if ((CV & 0b0000000100) >> 2) p.addOne(); else p.addZero();
+	if ((CV & 0b0000000010) >> 1) p.addOne(); else p.addZero();
+	if ((CV & 0b0000000001)) p.addOne(); else p.addZero();
+	p.accumulateCK();
+	
+	//CV value:
+	p.addDelimiter(0);
+	p.resetBT(); 
+	if ((value & 0b10000000) >> 7) p.addOne(); else p.addZero();
+	if ((value & 0b01000000) >> 6) p.addOne(); else p.addZero();
+	if ((value & 0b00100000) >> 5) p.addOne(); else p.addZero();
+	if ((value & 0b00010000) >> 4) p.addOne(); else p.addZero();
+	if ((value & 0b00001000) >> 3) p.addOne(); else p.addZero();
+	if ((value & 0b00000100) >> 2) p.addOne(); else p.addZero();
+	if ((value & 0b00000010) >> 1) p.addOne(); else p.addZero();
+	if ((value & 0b00000001)) p.addOne(); else p.addZero();
+	p.accumulateCK(); 
+
+	p.addDelimiter(0);
+	p.addCK(); 
+
+	p.addDelimiter(1);
 	return p;
 }
-	
 
 
-void DCCPacket::loadBaselineIdlePacket()
-{
-	//preamble:
-	for (unsigned i=1; i<=10; i++) addOne();
-	
-	//packet start bit:
-	addZero();
-	
-	//idle address:
-	for (unsigned i=1; i<=8; i++) addOne();
-	
-	//address end bit:
-	addZero();
-	 
-	//no data:
-	for (unsigned i=1; i<=8; i++) addZero();
 
-	//data end bit:
-	addZero();
-        
-	//idle packet checksum:
-	for (unsigned i=1; i<=8; i++) addOne();
-
-	//packet end bit:
-	addOne();
- 	
-}
-
-void DCCPacket::loadBaselineSpeedDirPacket(unsigned address, unsigned direction, unsigned  speed, bool headlight)
-{
-	// S9.2, Table 2 (unused until 28-step mode is implemented):
-	//const char steps[][5] = {{0,0,0,0,0},{0,0,0,1,0},{1,0,0,1,0},{0,0,0,1,1},{1,0,0,1,1},{0,0,1,0,0},{1,0,1,0,0},{0,0,1,0,1},{1,0,1,0,1},{0,0,1,1,0},{1,0,1,1,0},{0,0,1,1,1},{0,1,0,0,0},{1,1,0,0,0},{0,1,0,0,1},{1,1,0,0,1},{0,1,0,1,0},{1,1,0,1,0},{0,1,0,1,1},{1,1,0,1,1},{0,1,1,0,0},{1,1,1,0,0},{0,1,1,0,1},{1,1,1,0,1},{0,1,1,1,0},{1,1,1,1,0},{0,1,1,1,1},{1,1,1,1,1}};
-	char ck = 0;
-
-	if (speed > 27) speed = 27;
-	if (direction > 1) direction = 1;
-	
-	//preamble:
-	for (unsigned i=1; i<=10; i++) addOne();
-	
-	//packet start bit:
-	addZero();
-	
-	//address (7 bits):
-	bt = 0; //start check byte collection
-	addZero();
-	if ((address & 0b01000000) >> 6) addOne(); else addZero();
-	if ((address & 0b00100000) >> 5) addOne(); else addZero();
-	if ((address & 0b00010000) >> 4) addOne(); else addZero();
-	if ((address & 0b00001000) >> 3) addOne(); else addZero();
-	if ((address & 0b00000100) >> 2) addOne(); else addZero();
-	if ((address & 0b00000010) >> 1) addOne(); else addZero();
-	if ((address & 0b00000001)) addOne(); else addZero();
-	ck = bt ^ ck;  //collect the checksum
-	 
-	//address and headlight end bit:
-	addZero();
-	 
-	//data:
-	bt = 0;
-	addZero();
-	addOne();
-	if (direction) addOne(); else addZero();
-
-	//the following 'hard-codes' 14-step speed mode, with headlight:
-	if (headlight) addOne(); else addZero(); //only for 14-step mode
-	if (speed > 0) speed++; //gets around stop value, 000
-	if ((speed & 0b00001000) >> 3) addOne(); else addZero();
-	if ((speed & 0b00000100) >> 2) addOne(); else addZero();
-	if ((speed & 0b00000010) >> 1) addOne(); else addZero();
-	if ((speed & 0b00000001)) addOne(); else addZero();
-	
-	/* defer until 28-step mode is implemented
-	for (int i=0; i<5; i++) {
-		if (steps[speed][i] == 1) {
-			addOne(); 
-		}
-		else { 
-			addZero();
-		}
-	}
-	*/
-	
-	ck = bt ^ ck;  //collect the checksum
-	
-	//data end bit:
-	addZero();
-        
-	//packet checksum:
-	if ((ck & 0b10000000) >> 7) addOne(); else addZero();
-	if ((ck & 0b01000000) >> 6) addOne(); else addZero();
-	if ((ck & 0b00100000) >> 5) addOne(); else addZero();
-	if ((ck & 0b00010000) >> 4) addOne(); else addZero();
-	if ((ck & 0b00001000) >> 3) addOne(); else addZero();
-	if ((ck & 0b00000100) >> 2) addOne(); else addZero();
-	if ((ck & 0b00000010) >> 1) addOne(); else addZero();
-	if ((ck & 0b00000001)) addOne(); else addZero();
-
-	//packet  end bit:
-	addOne();
- 	
-}
-
-void DCCPacket::loadBaselineResetPacket()
-{
-        //preamble:
-        for (unsigned i=1; i<=10; i++) addOne();
-
-        //packet start bit:
-        addZero();
-        
-        //address:
-        for (unsigned i=1; i<=8; i++) addZero();
-        addZero();
-        
-        //data:
-        for (unsigned i=1; i<=8; i++) addZero();
-        addZero();
-
-        //checksum:
-        for (unsigned i=1; i<=8; i++) addZero();
-        addOne();
-
-}
-
-void DCCPacket::loadBaselineBroadcastStopPacket(unsigned stopcommand)
-{
-	const char stops[][5] = {{1,0,0,0,0}, {0,0,0,0,1}, {1,0,0,0,1}};
-	char ck = 0;
-
-	//preamble:
-	for (unsigned i=1; i<=10; i++) addOne();
-
-	//packet start bit:
-	addZero();
-
-	//address:
-	for (unsigned i=1; i<=8; i++) addZero();
-	//no need for checksum collection
-	addZero();
-        
-	//data:
-	ck = 0;
-	addZero();
-	addOne();
-	addOne(); //direction, don't care for stop commands
-	for (int i=0; i<5; i++)
-		if (stops[stopcommand][i] == '1') addOne(); else addZero();
-        ck = bt ^ ck;  //collect the checksum	
-	addZero();
-
-	//checksum:
-	if ((ck & 0b10000000) >> 7) addOne(); else addZero();
-	if ((ck & 0b01000000) >> 6) addOne(); else addZero();
-	if ((ck & 0b00100000) >> 5) addOne(); else addZero();
-	if ((ck & 0b00010000) >> 4) addOne(); else addZero();
-	if ((ck & 0b00001000) >> 3) addOne(); else addZero();
-	if ((ck & 0b00000100) >> 2) addOne(); else addZero();
-	if ((ck & 0b00000010) >> 1) addOne(); else addZero();
-	if ((ck & 0b00000001)) addOne(); else addZero();
-
-	addOne();
-
-}
+//Packet loaders, gradually incorporating this logic in the static packet makers...
 
 //Long-preamble(>=20 bits) 0 0111CCAA 0 AAAAAAAA 0 DDDDDDDD 0 EEEEEEEE 1
 void DCCPacket::loadServiceModeDirectPacket(int CV, char value)
 {
-	char ck = 0;
-	
-	//long preamble:
-	for (unsigned i=1; i<=20; i++) addOne();
 
-	//byte start bit:
-	addZero();
-	
-	//command, first two bits of CV:
-	ck = 0;
-	addZero();
-	addOne();
-	addOne();
-	addOne();
-	addOne(); //11 - Write byte
-	addOne();
-	if ((CV & 0b1000000000) >> 9) addOne(); else addZero();
-	if ((CV & 0b0100000000) >> 8) addOne(); else addZero();
-	ck = bt ^ ck;
-	
-	//byte start bit:
-	addZero();
-	
-	//last 8 bits of CV:
-	ck = 0;
-	if ((CV & 0b0010000000) >> 7) addOne(); else addZero();
-	if ((CV & 0b0001000000) >> 6) addOne(); else addZero();
-	if ((CV & 0b0000100000) >> 5) addOne(); else addZero();
-	if ((CV & 0b0000010000) >> 4) addOne(); else addZero();
-	if ((CV & 0b0000001000) >> 3) addOne(); else addZero();
-	if ((CV & 0b0000000100) >> 2) addOne(); else addZero();
-	if ((CV & 0b0000000010) >> 1) addOne(); else addZero();
-	if ((CV & 0b0000000001)) addOne(); else addZero();
-	ck = bt ^ ck;
-	
-	//CV value: 
-	ck = 0;
-	if ((value & 0b10000000) >> 7) addOne(); else addZero();
-	if ((value & 0b01000000) >> 6) addOne(); else addZero();
-	if ((value & 0b00100000) >> 5) addOne(); else addZero();
-	if ((value & 0b00010000) >> 4) addOne(); else addZero();
-	if ((value & 0b00001000) >> 3) addOne(); else addZero();
-	if ((value & 0b00000100) >> 2) addOne(); else addZero();
-	if ((value & 0b00000010) >> 1) addOne(); else addZero();
-	if ((value & 0b00000001)) addOne(); else addZero();
-	ck = bt ^ ck;  //collect the checksum
-
-	//byte start bit:
-	addZero();
-
-	//checksum:
-	if ((ck & 0b10000000) >> 7) addOne(); else addZero();
-	if ((ck & 0b01000000) >> 6) addOne(); else addZero();
-	if ((ck & 0b00100000) >> 5) addOne(); else addZero();
-	if ((ck & 0b00010000) >> 4) addOne(); else addZero();
-	if ((ck & 0b00001000) >> 3) addOne(); else addZero();
-	if ((ck & 0b00000100) >> 2) addOne(); else addZero();
-	if ((ck & 0b00000010) >> 1) addOne(); else addZero();
-	if ((ck & 0b00000001)) addOne(); else addZero();
-
-	//packet end bit:
-	addOne();
 }
+
+
 
 
 #define ONE 58
@@ -336,6 +397,61 @@ void DCCPacket::addZero()
 	bt = (bt << 1);
 	zeros++;
 }
+
+
+
+//Checksum accumulators and adders;
+
+void DCCPacket::resetCK()
+{
+	ck = 0;
+}
+
+void DCCPacket::resetBT()
+{
+	bt = 0;
+}
+
+void DCCPacket::accumulateCK()
+{
+	ck = bt ^ ck; 
+}
+
+
+void DCCPacket::addPreamble()
+{
+	for (unsigned i=1; i<=12; i++) addOne();
+}
+
+void DCCPacket::addCK()
+{
+	if ((ck & 0b10000000) >> 7) addOne(); else addZero();
+	if ((ck & 0b01000000) >> 6) addOne(); else addZero();
+	if ((ck & 0b00100000) >> 5) addOne(); else addZero();
+	if ((ck & 0b00010000) >> 4) addOne(); else addZero();
+	if ((ck & 0b00001000) >> 3) addOne(); else addZero();
+	if ((ck & 0b00000100) >> 2) addOne(); else addZero();
+	if ((ck & 0b00000010) >> 1) addOne(); else addZero();
+	if ((ck & 0b00000001)) addOne(); else addZero();
+}
+
+
+
+void DCCPacket::addDelimiter(int val)
+{
+	if (val == 0) {
+		pulsestring.append(" ");
+		addZero();
+		pulsestring.append(" ");
+	}
+	else if (val == 1) {
+		pulsestring.append(" ");
+		addOne();
+		pulsestring.append(" ");
+	}
+}
+
+//Getters:
 	
 std::vector<gpioPulse_t>& DCCPacket::getPulseTrain()
 {

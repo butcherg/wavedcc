@@ -59,6 +59,7 @@ struct roster_item {
 	unsigned speed;
 	unsigned direction;
 	unsigned headlight;
+	SPEED_STEPS steps;
 };
 
 class Roster
@@ -69,7 +70,7 @@ public:
 		next = rr.begin();
 	}
 	
-	void update(unsigned address, unsigned speed, unsigned direction, unsigned headlight)
+	void update(unsigned address, unsigned speed, unsigned direction, unsigned headlight, SPEED_STEPS steps)
 	{
 		m.lock();
 		rr[address] = roster_item{ address, speed, direction, headlight}; 
@@ -231,7 +232,7 @@ void runDCC()
 	else {
 		roster_item i = roster.getNext();
 		if (i.address != 0) 
-			commandPacket = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, i.address, i.direction, i.speed, i.headlight);
+			commandPacket = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, i.address, i.direction, i.speed, i.headlight,i.steps);
 		else
 			commandPacket = idlePacket;
 	}
@@ -259,7 +260,7 @@ void runDCC()
 		else {
 			roster_item i = roster.getNext();
 			if (i.address != 0) 
-				commandPacket = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, i.address, i.direction, i.speed, i.headlight);
+				commandPacket = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, i.address, i.direction, i.speed, i.headlight, i.steps);
 			else
 				commandPacket = idlePacket;
 		}
@@ -286,12 +287,6 @@ void signal_handler(int signum) {
 
 std::string dccInit()
 {
-#ifdef USE_PIGPIOD_IF
-	signal(SIGINT, signal_handler);
-#else
-	gpioSetSignalFunc(SIGINT, signal_handler);
-#endif
-
 	MAIN1=2;
 	MAIN2=3;
 
@@ -324,6 +319,7 @@ std::string dccInit()
 	set_mode(pigpio_id, PROGENABLE, PI_OUTPUT);
 	wave_clear(pigpio_id);
 	std::string wavelet_mode = "remote (" + host + ")";
+	signal(SIGINT, signal_handler);
 #else
 	if (gpioInitialise() < 0) return "Error: GPIO Initialization failed.";
 	gpioSetMode(MAIN1, PI_OUTPUT);
@@ -334,6 +330,7 @@ std::string dccInit()
 	gpioSetMode(PROGENABLE, PI_OUTPUT);
 	gpioWaveClear();
 	std::string wavelet_mode = "native";
+	gpioSetSignalFunc(SIGINT, signal_handler);
 #endif
 
 	std::stringstream result;
@@ -354,6 +351,9 @@ std::string dccCommand(std::string cmd)
 
 	std::stringstream response;
 
+	
+	
+	//<1{ MAIN|PROG]> - turn on all|main|prog track(s), returns <p1[ MAIN|PROG]>
 	if (cmdstring[0] == "1") {
 			if (cmdstring.size() >= 2) {
 				if (cmdstring[1] == "MAIN") {
@@ -377,6 +377,7 @@ std::string dccCommand(std::string cmd)
 			else response << "<Error: wavedcc only supports one mode at a time.>";
 	}
 	
+	//<0[ MAIN|PROG]> - turn off all|main|prog track(s), returns <p0[ MAIN|PROG]>
 	else if (cmdstring[0] == "0") {
 			if (cmdstring.size() >= 2) {
 				if (cmdstring[1] == "MAIN") {
@@ -401,11 +402,12 @@ std::string dccCommand(std::string cmd)
 			else response << "<Error: wavedcc only supports one mode at a time.>";
 	}
 
-	
+	//to-do: turn into <D CABS>
 	else if (cmdstring[0] == "r") {
 		return roster.list();
 	}
 	
+	//<-[ (int address)]> - forget address, or forget all addresses, if none is specified. returns NONE
 	else if (cmdstring[0] == "-") {
 		if (cmdstring.size() >= 2) {
 			roster.forget(atoi(cmdstring[1].c_str()));
@@ -417,6 +419,8 @@ std::string dccCommand(std::string cmd)
 
 	// throttle command: t addr spd dir
 	//<t [1] (int address) (int speed) (0|1 direction)> - throttle comand, returns <T 1 (int speed) (1|0 direction)>
+	//		+ BaselineSpeedDirPacket
+	//		- ExtendedSpeedDirPacket
 	else if (cmdstring[0] == "t") {
 		int address, speed;
 		bool direction;
@@ -437,9 +441,32 @@ std::string dccCommand(std::string cmd)
 			response << "<Error: malformed command.>";
 		}
 		
-		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight);
+		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight, STEP_14);
 		commandqueue.addCommand(p);
-		roster.update(address, speed, direction, headlight);
+		roster.update(address, speed, direction, headlight, STEP_14);
+	}
+	
+	//<w (int address) (int cv) (int value) - write value to cv of address on the main track
+	//	
+	else if (cmdstring[0] == "w") {
+		int address, cv, value;
+		
+		if (cmdstring.size() == 4) {
+			address = atoi(cmdstring[1].c_str());
+			cv = atoi(cmdstring[2].c_str());
+			value = atoi(cmdstring[3].c_str());
+			response << "<W " << address << " " << cv << " " << value <<">";
+		}
+		else {
+			response << "<Error: malformed command.>";
+		}
+		
+		DCCPacket p = DCCPacket::makeWriteCVToAddressPacket(MAIN1, MAIN2, address, cv, value);
+		commandqueue.addCommand(p);
+		commandqueue.addCommand(p);
+		commandqueue.addCommand(p);
+		commandqueue.addCommand(p);
+
 	}
 	
 //end of DCC++ EX commands
@@ -460,7 +487,7 @@ std::string dccCommand(std::string cmd)
 			direction = 1;
 		else 
 			direction = 0;
-		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight);
+		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight, STEP_14);
 		commandqueue.addCommand(p);
 		roster.update(address, speed, direction, headlight);
 		response << "direction of " << address << " is now " << direction;
@@ -477,7 +504,7 @@ std::string dccCommand(std::string cmd)
 		}
 		speed++;
 		if (speed > 27) speed = 27;
-		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight);
+		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight, STEP_14);
 		commandqueue.addCommand(p);
 		roster.update(address, speed, direction, headlight);
 		response << "speed of " << address << " is now " << speed;
@@ -494,7 +521,7 @@ std::string dccCommand(std::string cmd)
 		}
 		speed--;
 		if (speed < 0) speed = 0;
-		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight);
+		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight, STEP_14);
 		commandqueue.addCommand(p);
 		roster.update(address, speed, direction, headlight);
 		response << "speed of " << address << " is now " << speed;
@@ -510,7 +537,7 @@ std::string dccCommand(std::string cmd)
 			return response.str();
 		}
 		speed = 0;
-		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight);
+		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight, STEP_14);
 		commandqueue.addCommand(p);
 		roster.update(address, speed, direction, headlight);
 		response << "speed of " << address << " is now " << speed;
@@ -519,7 +546,7 @@ std::string dccCommand(std::string cmd)
 
 	else if (cmdstring[0] == "test") {
 		if (!running) {
-			DCCPacket testpacket = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, 3,1,1,true);
+			DCCPacket testpacket = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, 3,1,1,true, STEP_14);
 #ifdef USE_PIGPIOD_IF
 			wave_add_generic(pigpio_id, testpacket.getPulseTrain().size(), testpacket.getPulseTrain().data());
 			int wid =  wave_create(pigpio_id);
@@ -563,23 +590,17 @@ std::string dccCommand(std::string cmd)
 
 
 	//to-do:
-	//<0[ MAIN|PROG]> - turn off all|main|prog track(s), returns <p0[ MAIN|PROG]>
-	//
 	
-	//<1{ MAIN|PROG]> - turn on all|main|prog track(s), returns <p1[ MAIN|PROG]>
-
 	//<s> - command station status, returns <iDCC-EX V-3.0.4 / MEGA / STANDARD_MOTOR_SHIELD G-75ab2ab><H 1 0><H 2 0><H 3 0><H 4 0><Y 52 0><q 53><q 50>
 
-	//<t [1] (int address) (int speed) (0|1 direction)> - throttle comand, returns <T 1 (int speed) (1|0 direction)>
-	//		+ BaselineSpeedDirPacket
-	//		- ExtendedSpeedDirPacket
-
-	//<-[ (int address)]> - forget address, or forget all addresses, if none is specified. returns NONE
+	
 
 	//<!> - emergency stop all trains, leave track power on, returns NONE
 	//		+ BaselineBroadcastStopPacket
 
 	//<F (int address) (int function) (1|0 on/off)> cab function: lights, horn, bell, etc. (this will require a dccwave-maintained roster), returns NONE
+	
+	//<D SPEED28|SPEED128> - changes the step mode for <t> commands
 
 	//<W (int address)> - write locomotive address to the programming track
 	//		-+Service Mode Direct Address, CV#19, to the programming track (Long-preamble(>=20 bits) 0 0111CCAA 0 AAAAAAAA 0 DDDDDDDD 0 EEEEEEEE 1)
