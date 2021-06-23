@@ -14,10 +14,13 @@ At the PI GPIOs, a bipolar interface is implemented with two output pins.  There
 H-bridges.  Configuration of these is to be provided in a wavedcc.conf file, which currently must sit in the same directory as
 the executables.
 
-To build the code, it is recommended that a separate build/ directory be created, cd to that, then run ../configure.  That'll 
-create an appropriately targete Makefile in the build directory, with which you can then run make.  By default, the 
+Prerequisites: sudo apt install libpigpio-dev libpigpiod-if-dev pigpiod 
+
+To build the code, it is recommended that a separate build/ directory be created, cd to that, cp ../Makefile ., and edit the Makefile
+to change srcdir=../ .  Then, run make and you'll get executables for wavedcc and wavedccd.  By default, the 
 makefile builds programs that use the socket interface to pigpiod; if you want to control the GPIOs directly, comment out
-the CFLAGS and LFLAGs lines for libpigpiod in the Makefile and uncomment the corresponding libpigpio CFLAGS and LFLAGS lines.
+the CFLAGS and LFLAGs lines for libpigpiod in the Makefile and uncomment the corresponding libpigpio CFLAGS and LFLAGS lines.  You also
+don't need to install the second and third packages in the above apt command.
 All this assumes you're compiling on the Raspberry Pi itself, but the Makefile can be easily modified to cross-compile, e.g., 
 with a buildroot toolchain.
 
