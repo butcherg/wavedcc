@@ -8,7 +8,7 @@ and TCP interface, respectively.  The message format is the DCC++-EX specificati
 
 The initial commit just implements the NMRA S9.2 Baseline packets.  Also, only operations mode is implemented at present, but
 the infrastructure to do programming mode is present.  And, the pulse train builder for speed/direction packets only recognizes 
-14-step mode.
+28-step mode.
 
 At the PI GPIOs, a bipolar interface is implemented with two output pins.  There is also a separate enable pin for L298-style 
 H-bridges.  Configuration of these is to be provided in a wavedcc.conf file, which currently must sit in the same directory as
