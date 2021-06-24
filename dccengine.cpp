@@ -278,7 +278,7 @@ void runDCC()
 }
 
 void signal_handler(int signum) {
-	printf("\nexiting (signal %d)...\n",signum);
+	std::cout << std::endl << "exiting (signal " << signum << ")..." << std::endl;
 #ifdef USE_PIGPIOD_IF
 	pigpio_stop(pigpio_id);
 #else
@@ -357,47 +357,54 @@ std::string dccCommand(std::string cmd)
 	
 	//<1{ MAIN|PROG]> - turn on all|main|prog track(s), returns <p1[ MAIN|PROG]>
 	if (cmdstring[0] == "1") {
-			if (cmdstring.size() >= 2) {
-				if (cmdstring[1] == "MAIN") {
-					if (programming) {
-						response << "<Error: DCC pulsetrain already started.>";
-					else {
-						if (t == NULL) {
-							running = true;
-							t = new std::thread(&runDCC);
-#ifdef USE_PIGPIOD_IF
-							gpio_write(pigpio_id, MAINENABLE, 1);
-#else
-							gpioWrite(MAINENABLE, 1);
-#endif
-							response << "<p1 MAIN>";
-						}
-						else response << "<Error: programming mode active";
-					}
+		if (cmdstring.size() >= 2) {
+			if (cmdstring[1] == "MAIN") {
+				if (programming) {
+					response << "<Error: programming mode active.>";
 				}
-				else if (cmdstring[1] == "PROG") {
-					if (running) {
-						response << "<Error: run mode active";
-					else {
-						programming = true;
+				else {
+					if (t == NULL) {
+						running = true;
+						t = new std::thread(&runDCC);
 #ifdef USE_PIGPIOD_IF
-						gpio_write(pigpio_id, PROGENABLE, 1);
+						gpio_write(pigpio_id, MAINENABLE, 1);
 #else
-						gpioWrite(PROGENABLE, 1);
+						gpioWrite(MAINENABLE, 1);
 #endif
-						response << "<p1 PROG>";
-					
+						response << "<p1 MAIN>";
 					}
+					else response << "<Error: DCC pulsetrain already started.";
 				}
-				else response << "<Error: invalid mode.>";
 			}
-			else response << "<Error: wavedcc only supports one mode at a time.>";
+			else if (cmdstring[1] == "PROG") {
+				if (running) {
+					response << "<Error: run mode active";
+				}
+				else {
+					programming = true;
+#ifdef USE_PIGPIOD_IF
+					gpio_write(pigpio_id, PROGENABLE, 1);
+#else
+					gpioWrite(PROGENABLE, 1);
+#endif
+					response << "<p1 PROG>";
+					
+				}
+			}
+			else response << "<Error: invalid mode.>";
+		}
+		else response << "<Error: wavedcc only supports one mode at a time.>";
+		
 	}
 	
 	//<0[ MAIN|PROG]> - turn off all|main|prog track(s), returns <p0[ MAIN|PROG]>
 	else if (cmdstring[0] == "0") {
-			if (cmdstring.size() >= 2) {
-				if (cmdstring[1] == "MAIN") {
+		if (cmdstring.size() >= 2) {
+			if (cmdstring[1] == "MAIN") {
+				if (programming) {
+					response << "<Error: programming mode active.>";
+				}
+				else {
 					running = false;
 #ifdef USE_PIGPIOD_IF
 					gpio_write(pigpio_id, MAINENABLE, 0);
@@ -411,12 +418,50 @@ std::string dccCommand(std::string cmd)
 					}
 					response <<  "<p0 MAIN>";
 				}
-				//else if (cmdstring[1] == "PROG") {
-				//	todo...
-				//}
-				else response << "<Error: only MAIN is currently valid.>";
 			}
-			else response << "<Error: wavedcc only supports one mode at a time.>";
+			else if (cmdstring[1] == "PROG") {
+				if (running) {
+					response << "<Error: run mode active";
+				}
+				else {
+					programming = false;
+#ifdef USE_PIGPIOD_IF
+					gpio_write(pigpio_id, PROGENABLE, 0);
+#else
+					gpioWrite(PROGENABLE, 0);
+#endif
+					response << "<p0 PROG>";
+					
+				}
+			}
+			else response << "<Error: invalid mode.>";
+
+		}
+		else { // turn off both/either
+			if (running) {
+				running = false;
+#ifdef USE_PIGPIOD_IF
+				gpio_write(pigpio_id, MAINENABLE, 0);
+#else
+				gpioWrite(MAINENABLE, 0);
+#endif
+				if (t && t->joinable()) {
+					t->join();
+					t->~thread();
+					t = NULL;
+				}
+				response <<  "<p0 MAIN>";
+			}
+			else if (programming) {
+				programming = false;
+#ifdef USE_PIGPIOD_IF
+				gpio_write(pigpio_id, PROGENABLE, 0);
+#else
+				gpioWrite(PROGENABLE, 0);
+#endif
+				response << "<p0 PROG>";
+			}
+		}
 	}
 
 	//to-do: turn into <D CABS>
@@ -486,81 +531,28 @@ std::string dccCommand(std::string cmd)
 
 	}
 	
-//end of DCC++ EX commands
-/*
-	else if (cmdstring[0] == "adr") {
-		if (cmdstring.size() >=2) {
-			address = atoi(cmdstring[1].c_str());
-		}
-		else {
-			 response << "Error: no address.";
-			 return response.str();
-		}
-		response << "OK";
-	}
 
-	else if (cmdstring[0] == "d") {
-		if (direction == 0) 
-			direction = 1;
-		else 
-			direction = 0;
-		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight, STEP_14);
-		commandqueue.addCommand(p);
-		roster.update(address, speed, direction, headlight);
-		response << "direction of " << address << " is now " << direction;
-	}
 
-	else if (cmdstring[0] == "+") {
-		if (address == 0) {
-			 response << "Error: address is zero.";
-			 return response.str();
-		}
-		if (!running) {
-			response << "Error: no DCC pulsetrain.";
-			return response.str();
-		}
-		speed++;
-		if (speed > 27) speed = 27;
-		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight, STEP_14);
-		commandqueue.addCommand(p);
-		roster.update(address, speed, direction, headlight);
-		response << "speed of " << address << " is now " << speed;
-	}
 
-	else if (cmdstring[0] == "-") {
-		if (address == 0) {
-			 response << "Error: address is zero.";
-			 return response.str();
-		}
-		if (!running) {
-			response << "Error: no DCC pulsetrain.";
-			return response.str();
-		}
-		speed--;
-		if (speed < 0) speed = 0;
-		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight, STEP_14);
-		commandqueue.addCommand(p);
-		roster.update(address, speed, direction, headlight);
-		response << "speed of " << address << " is now " << speed;
+
+	else if (cmdstring[0] == "s") {
+#ifdef USE_PIGPIOD_IF
+		response << "Remote hardware version: " << get_hardware_revision(pigpio_id) << "\n";
+		response << "Remote pigpio(if) version: " << get_pigpio_version(pigpio_id) << "(" << pigpiod_if_version() << ")" << "\n";
+		response << "Remote pigpiod DCBs: " << wave_get_max_cbs(pigpio_id) << "\n";
+#else
+		response << "Local pigpiod DCBs: " << gpioWaveGetMaxCbs() << "\n";
+#endif
+		if (running) 
+			response << "DCC pulsetrain running" << "\n";
+		else
+			response << "DCC pulsetrain stopped" << "\n";
 	}
 	
-	else if (cmdstring[0] == ".") {
-		if (address == 0) {
-			 response << "Error: address is zero.";
-			 return response.str();
-		}
-		if (!running) {
-			response << "Error: no DCC pulsetrain.";
-			return response.str();
-		}
-		speed = 0;
-		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight, STEP_14);
-		commandqueue.addCommand(p);
-		roster.update(address, speed, direction, headlight);
-		response << "speed of " << address << " is now " << speed;
+	else if (cmdstring[0] == "l") {
+		response << roster.list();
 	}
-*/
-
+	
 	else if (cmdstring[0] == "test") {
 		if (!running) {
 			DCCPacket testpacket = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, 3,1,1,true, STEP_14);
@@ -581,35 +573,14 @@ std::string dccCommand(std::string cmd)
 		}
 		else response << "Error: can't send a test packet while the dcc pulse train is running.";
 	}
-
-	else if (cmdstring[0] == "s") {
-#ifdef USE_PIGPIOD_IF
-		response << "Remote hardware version: " << get_hardware_revision(pigpio_id) << "\n";
-		response << "Remote pigpio(if) version: " << get_pigpio_version(pigpio_id) << "(" << pigpiod_if_version() << ")" << "\n";
-		response << "Remote pigpiod DCBs: " << wave_get_max_cbs(pigpio_id) << "\n";
-#else
-		response << "Local pigpiod DCBs: " << gpioWaveGetMaxCbs() << "\n";
-#endif
-		if (running) 
-			response << "DCC pulsetrain running" << "\n";
-		else
-			response << "DCC pulsetrain stopped" << "\n";
-	}
-	
-	else if (cmdstring[0] == "l") {
-		response << roster.list();
-	}
 	
 	else response << "Error: unrecognized command: " << cmdstring[0];
 
-
+	return response.str();
 
 
 
 	//to-do:
-	
-	//<s> - command station status, returns <iDCC-EX V-3.0.4 / MEGA / STANDARD_MOTOR_SHIELD G-75ab2ab><H 1 0><H 2 0><H 3 0><H 4 0><Y 52 0><q 53><q 50>
-
 	
 
 	//<!> - emergency stop all trains, leave track power on, returns NONE
@@ -631,7 +602,7 @@ std::string dccCommand(std::string cmd)
 	//Consisting
 	//CVs on the main (ops mode programming)
 
-	return response.str();
+
 }
 
 void dccFinish()
