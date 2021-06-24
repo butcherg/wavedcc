@@ -181,7 +181,9 @@ Roster roster;
 
 //flag to control runDCC()
 bool running = false;
-bool run = true; 
+
+//flag to control programming:
+bool programming = false;
 
 //GPIO ports to use for DCC output, set in the first part of main()
 int MAIN1, MAIN2, MAINENABLE;
@@ -357,22 +359,37 @@ std::string dccCommand(std::string cmd)
 	if (cmdstring[0] == "1") {
 			if (cmdstring.size() >= 2) {
 				if (cmdstring[1] == "MAIN") {
-					if (t == NULL) {
-						running = true;
-						t = new std::thread(&runDCC);
+					if (programming) {
+						response << "<Error: DCC pulsetrain already started.>";
+					else {
+						if (t == NULL) {
+							running = true;
+							t = new std::thread(&runDCC);
 #ifdef USE_PIGPIOD_IF
-						gpio_write(pigpio_id, MAINENABLE, 1);
+							gpio_write(pigpio_id, MAINENABLE, 1);
 #else
-						gpioWrite(MAINENABLE, 1);
+							gpioWrite(MAINENABLE, 1);
 #endif
-						response << "<p1 MAIN>";
+							response << "<p1 MAIN>";
+						}
+						else response << "<Error: programming mode active";
 					}
-					else response << "<Error: DCC pulsetrain already started.>";
 				}
-				//else if (cmdstring[1] == "PROG") {
-				//	todo...
-				//}
-				else response << "<Error: only MAIN is currently valid.>";
+				else if (cmdstring[1] == "PROG") {
+					if (running) {
+						response << "<Error: run mode active";
+					else {
+						programming = true;
+#ifdef USE_PIGPIOD_IF
+						gpio_write(pigpio_id, PROGENABLE, 1);
+#else
+						gpioWrite(PROGENABLE, 1);
+#endif
+						response << "<p1 PROG>";
+					
+					}
+				}
+				else response << "<Error: invalid mode.>";
 			}
 			else response << "<Error: wavedcc only supports one mode at a time.>";
 	}
