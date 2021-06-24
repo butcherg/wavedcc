@@ -353,8 +353,6 @@ std::string dccCommand(std::string cmd)
 
 	std::stringstream response;
 
-	
-	
 	//<1{ MAIN|PROG]> - turn on all|main|prog track(s), returns <p1[ MAIN|PROG]>
 	if (cmdstring[0] == "1") {
 		if (cmdstring.size() >= 2) {
@@ -464,9 +462,8 @@ std::string dccCommand(std::string cmd)
 		}
 	}
 
-	//to-do: turn into <D CABS>
-	else if (cmdstring[0] == "r") {
-		return roster.list();
+	else if (cmdstring[0] == "D") {
+		if (cmdstring[1] == "CABS") return roster.list();
 	}
 	
 	//<-[ (int address)]> - forget address, or forget all addresses, if none is specified. returns NONE
@@ -487,25 +484,29 @@ std::string dccCommand(std::string cmd)
 		int address, speed;
 		bool direction;
 		
-		if (cmdstring.size() == 5) {
-			address = atoi(cmdstring[2].c_str());
-			speed = atoi(cmdstring[3].c_str());
-			direction = atoi(cmdstring[4].c_str());
-			response << "<T 1 " << speed << " " << direction << ">";
-		}
-		else if (cmdstring.size() == 4) {
-			address = atoi(cmdstring[1].c_str());
-			speed = atoi(cmdstring[2].c_str());
-			direction = atoi(cmdstring[3].c_str());
-			response << "<T 1 " << speed << " " << direction << ">";
-		}
-		else {
-			response << "<Error: malformed command.>";
-		}
+		if (running) {
 		
-		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight, STEP_14);
-		commandqueue.addCommand(p);
-		roster.update(address, speed, direction, headlight, STEP_14);
+			if (cmdstring.size() == 5) {
+				address = atoi(cmdstring[2].c_str());
+				speed = atoi(cmdstring[3].c_str());
+				direction = atoi(cmdstring[4].c_str());
+				response << "<T 1 " << speed << " " << direction << ">";
+			}
+			else if (cmdstring.size() == 4) {
+				address = atoi(cmdstring[1].c_str());
+				speed = atoi(cmdstring[2].c_str());
+				direction = atoi(cmdstring[3].c_str());
+				response << "<T 1 " << speed << " " << direction << ">";
+			}
+			else {
+				response << "<Error: malformed command.>";
+			}
+		
+			DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight, STEP_14);
+			commandqueue.addCommand(p);
+			roster.update(address, speed, direction, headlight, STEP_14);
+		} 
+		else response << "<Error: can't run in programming mode.>";
 	}
 	
 	//<w (int address) (int cv) (int value) - write value to cv of address on the main track
@@ -513,27 +514,94 @@ std::string dccCommand(std::string cmd)
 	else if (cmdstring[0] == "w") {
 		int address, cv, value;
 		
-		if (cmdstring.size() == 4) {
-			address = atoi(cmdstring[1].c_str());
-			cv = atoi(cmdstring[2].c_str());
-			value = atoi(cmdstring[3].c_str());
-			response << "<W " << address << " " << cv << " " << value <<">";
-		}
-		else {
-			response << "<Error: malformed command.>";
-		}
+		if (running) {
 		
-		DCCPacket p = DCCPacket::makeWriteCVToAddressPacket(MAIN1, MAIN2, address, cv, value);
-		commandqueue.addCommand(p);
-		commandqueue.addCommand(p);
-		commandqueue.addCommand(p);
-		commandqueue.addCommand(p);
+			if (cmdstring.size() == 4) {
+				address = atoi(cmdstring[1].c_str());
+				cv = atoi(cmdstring[2].c_str());
+				value = atoi(cmdstring[3].c_str());
+				response << "<W " << address << " " << cv << " " << value <<">";
+			}
+			else {
+				response << "<Error: malformed command.>";
+			}
+		
+			DCCPacket p = DCCPacket::makeWriteCVToAddressPacket(MAIN1, MAIN2, address, cv, value);
+			commandqueue.addCommand(p);
+			//commandqueue.addCommand(p);
+			//commandqueue.addCommand(p);
+			//commandqueue.addCommand(p);
+		}
+		else response << "<Error: can't run in programming mode.>";
 
 	}
 	
+	//<W cab>
+	//<W cv value>
+	else if (cmdstring[0] == "W") {
+		if (programming) {
+			int address, cv, value;
+			
+			DCCPacket r = DCCPacket::makeBaselineResetPacket(PROG1, PROG2);
+		
+			if (cmdstring.size() == 2) {
+				address = atoi(cmdstring[1].c_str());
+				DCCPacket p =  DCCPacket::makeServiceModeDirectPacket(PROG1, PROG2, 1, address);
+				
+#ifdef USE_PIGPIOD_IF
+				wave_clear(pigpio_id);
+				wave_add_generic(pigpio_id, r.getPulseTrain().size(), r.getPulseTrain().data());
+				char rwave = wave_create(pigpio_id);
+				wave_add_generic(pigpio_id, p.getPulseTrain().size(), p.getPulseTrain().data());
+				char pwave = wave_create(pigpio_id);
+				char pchain[14] = {
+					//S-9.2.3: 3 resets:
+					rwave, rwave, rwave,
+					//S-9.2.3: 5 writes:
+					pwave, pwave, pwave, pwave, pwave,
+					//S-9.2.3: 6 resets:
+					rwave, rwave, rwave, rwave, rwave, rwave
+				};
+				wave_chain(pigpio_id, pchain , 14);
+				while (wave_tx_busy(pigpio_id)) time_sleep(0.1);
+				wave_delete(pigpio_id, rwave);
+				wave_delete(pigpio_id, pwave);
+				
+#else
+				gpioWaveClear();
+				gpioWaveAddGeneric(r.getPulseTrain().size(), r.getPulseTrain().data());
+				char rwave = gpioWaveCreate();
+				gpioWaveAddGeneric(p.getPulseTrain().size(), p.getPulseTrain().data());
+				char pwave = gpioWaveCreate();
+				char pchain[14] = {
+					//S-9.2.3: 3 resets:
+					rwave, rwave, rwave,
+					//S-9.2.3: 5 writes:
+					pwave, pwave, pwave, pwave, pwave,
+					//S-9.2.3: 6 resets:
+					rwave, rwave, rwave, rwave, rwave, rwave
+				};
+				gpioWaveChain(pchain, 14);
+				while (gpioWaveTxBusy()) time_sleep(0.1);
+				gpioWaveDelete(rwave);
+				gpioWaveDelete(pwave);
+#endif
+				
+				response << "<W " << address  <<">";
+			}
+			else if (cmdstring.size() == 3) {
+				cv = atoi(cmdstring[1].c_str());
+				value = atoi(cmdstring[2].c_str());
+				DCCPacket p = DCCPacket::makeServiceModeDirectPacket(PROG1, PROG2, cv, value);
+				response << "<W " << cv  << " " << value << ">";
+			}
+			else {
+				response << "<Error: malformed command.>";
+			}
+		}
+		else response << "<Error: can't program in ops mode.>";
 
-
-
+	}
 
 	else if (cmdstring[0] == "s") {
 #ifdef USE_PIGPIOD_IF
