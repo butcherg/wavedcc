@@ -72,18 +72,7 @@ DCCPacket DCCPacket::makeBaselineSpeedDirPacket(int pinA, int pinB, unsigned add
 
 	//address start bit:
 	p.addDelimiter(0);
-
-	//address (7 bits):
-	p.resetBT();
-	p.addZero();
-	if ((address & 0b01000000) >> 6) p.addOne(); else p.addZero();
-	if ((address & 0b00100000) >> 5) p.addOne(); else p.addZero();
-	if ((address & 0b00010000) >> 4) p.addOne(); else p.addZero();
-	if ((address & 0b00001000) >> 3) p.addOne(); else p.addZero();
-	if ((address & 0b00000100) >> 2) p.addOne(); else p.addZero();
-	if ((address & 0b00000010) >> 1) p.addOne(); else p.addZero();
-	if ((address & 0b00000001)) p.addOne(); else p.addZero();
-	p.accumulateCK();
+	p.addAddress(address); //If address is >127, the address is a two-byte encoding per S9.2.1, so this is a bit more than a baseline packet
 
 	//data start bit:
 	p.addDelimiter(0);
@@ -166,7 +155,7 @@ DCCPacket DCCPacket::makeBaselineBroadcastStopPacket(int pinA, int pinB, BASE_ST
 	p.addOne(); //direction, don't care for stop commands
 	for (int i=0; i<5; i++)
 		if (stops[stopcommand][i] == '1') p.addOne(); else p.addZero();
-        p.accumulateCK();  //collect the checksum	
+	p.accumulateCK();  //collect the checksum	
 
 	p.addDelimiter(0);        
 
@@ -179,7 +168,67 @@ DCCPacket DCCPacket::makeBaselineBroadcastStopPacket(int pinA, int pinB, BASE_ST
 	return p;
 }
 
+
+
 //Extended packet makers:
+
+DCCPacket DCCPacket::makeAdvancedSpeedDirPacket(int pinA, int pinB, unsigned address, unsigned direction, unsigned  speed, bool headlight, SPEED_STEPS steps)
+{
+	DCCPacket p(pinA, pinB);
+
+	if (speed > 128) speed = 128;
+	if (speed < 0)  speed =  0;
+	if (direction > 1) direction = 1;
+	
+	//reset checksum accumulator
+	p.resetCK();
+	
+	//preamble:
+	p.addPreamble();
+
+	//address start bit:
+	p.addDelimiter(0);
+	p.addAddress(address); //If address is >127, the address is a two-byte encoding per S9.2.1, so this is a bit more than a baseline packet
+
+	//data start bit:
+	p.addDelimiter(0);
+	
+	p.resetBT();
+	//001 - advanced operating instruction
+	p.addZero();
+	p.addZero();
+	p.addOne();
+	//11111 - 128 speed step instruction
+	p.addOne();
+	p.addOne();
+	p.addOne();
+	p.addOne();
+	p.addOne();
+	p.accumulateCK();
+	
+	//data start bit:
+	p.addDelimiter(0);
+	
+	p.resetBT();
+	if (direction) p.addOne(); else p.addZero();
+	if ((speed & 0b01000000) >> 6) p.addOne(); else p.addZero();
+	if ((speed & 0b00100000) >> 5) p.addOne(); else p.addZero();
+	if ((speed & 0b00010000) >> 4) p.addOne(); else p.addZero();
+	if ((speed & 0b00001000) >> 3) p.addOne(); else p.addZero();
+	if ((speed & 0b00000100) >> 2) p.addOne(); else p.addZero();
+	if ((speed & 0b00000010) >> 1) p.addOne(); else p.addZero();
+	if ((speed & 0b00000001)) p.addOne(); else p.addZero();
+	p.accumulateCK();
+	
+	p.addDelimiter(0);        
+
+	//checksum:
+	p.addCK(); 
+
+	p.addDelimiter(1);
+	
+	return p;
+}
 
 DCCPacket DCCPacket::makeWriteCVToAddressPacket(int pinA, int pinB, int address, int CV, char value)
 {
@@ -194,36 +243,7 @@ DCCPacket DCCPacket::makeWriteCVToAddressPacket(int pinA, int pinB, int address,
 	////////////////////////// Address: 1-2 bytes //////////////////////////////////
 	//packet start bit:
 	p.addDelimiter(0);
-	
-	if ((address >= 1) & (address <= 127)) {  //7-bit address
-		p.resetBT(); //start check byte collection
-		p.addZero();
-		if ((address & 0b01000000) >> 6) p.addOne(); else p.addZero();
-		if ((address & 0b00100000) >> 5) p.addOne(); else p.addZero();
-		if ((address & 0b00010000) >> 4) p.addOne(); else p.addZero();
-		if ((address & 0b00001000) >> 3) p.addOne(); else p.addZero();
-		if ((address & 0b00000100) >> 2) p.addOne(); else p.addZero();
-		if ((address & 0b00000010) >> 1) p.addOne(); else p.addZero();
-		if ((address & 0b00000001)) p.addOne(); else p.addZero();
-		p.accumulateCK();
-	}
-	else if ((address >= 128) & (address <= 191)) { //
-		
-	}
-	else if ((address >= 192) & (address <= 231)) { // 14-bit addresses
-		//to-do: full 14-bit addresses
-		p.resetBT(); //start check byte collection
-		if ((address & 0b10000000) >> 7) p.addOne(); else p.addZero();
-		if ((address & 0b01000000) >> 6) p.addOne(); else p.addZero();
-		if ((address & 0b00100000) >> 5) p.addOne(); else p.addZero();
-		if ((address & 0b00010000) >> 4) p.addOne(); else p.addZero();
-		if ((address & 0b00001000) >> 3) p.addOne(); else p.addZero();
-		if ((address & 0b00000100) >> 2) p.addOne(); else p.addZero();
-		if ((address & 0b00000010) >> 1) p.addOne(); else p.addZero();
-		if ((address & 0b00000001)) p.addOne(); else p.addZero();
-		p.accumulateCK();
-	}
-	
+	p.addAddress(address);
 	
 	////////////////////////// Instruction byte //////////////////////////////////
 	//instruction start bit:
@@ -345,18 +365,6 @@ DCCPacket DCCPacket::makeServiceModeDirectPacket(int pinA, int pinB, int CV, cha
 }
 
 
-
-//Packet loaders, gradually incorporating this logic in the static packet makers...
-
-//Long-preamble(>=20 bits) 0 0111CCAA 0 AAAAAAAA 0 DDDDDDDD 0 EEEEEEEE 1
-void DCCPacket::loadServiceModeDirectPacket(int CV, char value)
-{
-
-}
-
-
-
-
 #define ONE 58
 #define ZERO 100
 
@@ -421,6 +429,55 @@ void DCCPacket::accumulateCK()
 void DCCPacket::addPreamble()
 {
 	for (unsigned i=1; i<=12; i++) addOne();
+}
+
+bool DCCPacket::addAddress(int address)
+{
+	if ((address >= 1) & (address <= 127)) {
+		resetBT(); //start check byte collection
+		addZero();
+		if ((address & 0b01000000) >> 6) addOne(); else addZero();
+		if ((address & 0b00100000) >> 5) addOne(); else addZero();
+		if ((address & 0b00010000) >> 4) addOne(); else addZero();
+		if ((address & 0b00001000) >> 3) addOne(); else addZero();
+		if ((address & 0b00000100) >> 2) addOne(); else addZero();
+		if ((address & 0b00000010) >> 1) addOne(); else addZero();
+		if ((address & 0b00000001)) addOne(); else addZero();
+		accumulateCK();
+		return true;
+	}
+	else if ((address >= 128) & (address <= 10239)) {
+		resetBT();
+		addOne(); //11: extended address
+		addOne();
+		if ((address & 0b10000000000000) >> 13) addOne(); else addZero();
+		if ((address & 0b01000000000000) >> 12) addOne(); else addZero();
+		if ((address & 0b00100000000000) >> 11) addOne(); else addZero();
+		if ((address & 0b00010000000000) >> 10) addOne(); else addZero();
+		if ((address & 0b00001000000000) >> 9)  addOne(); else addZero();
+		if ((address & 0b00000100000000) >> 8)  addOne(); else addZero();
+		accumulateCK();
+		
+		addDelimiter(0);
+		
+		resetBT();
+		if ((address & 0b00000010000000) >> 7) addOne(); else addZero();
+		if ((address & 0b00000001000000) >> 6) addOne(); else addZero();
+		if ((address & 0b00000000100000) >> 5) addOne(); else addZero();
+		if ((address & 0b00000000010000) >> 4) addOne(); else addZero();
+		if ((address & 0b00000000001000) >> 3) addOne(); else addZero();
+		if ((address & 0b00000000000100) >> 2) addOne(); else addZero();
+		if ((address & 0b00000000000010) >> 1) addOne(); else addZero();
+		if ((address & 0b00000000000001)) addOne(); else addZero();
+		accumulateCK();
+		
+		return true;
+	}
+	
+	
+	
+	return false;
+	
 }
 
 void DCCPacket::addCK()

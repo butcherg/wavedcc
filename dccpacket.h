@@ -28,15 +28,21 @@ public:
 	DCCPacket(const DCCPacket &o); 
 	
 	//Packet factories
+	
+	//Baseline packets:
 	static DCCPacket makeBaselineIdlePacket(int pinA, int pinB);
 	static DCCPacket makeBaselineSpeedDirPacket(int pinA, int pinB, unsigned address, unsigned direction, unsigned  speed, bool headlight, SPEED_STEPS steps);
 	static DCCPacket makeBaselineResetPacket(int pinA, int pinB);
 	static DCCPacket makeBaselineBroadcastStopPacket(int pinA, int pinB, BASE_STOP stopcommand);
+	
+	//Extended packets:
+	static DCCPacket makeAdvancedSpeedDirPacket(int pinA, int pinB, unsigned address, unsigned direction, unsigned  speed, bool headlight, SPEED_STEPS steps);
+
+	
+	//Service mode packets:
 	static DCCPacket makeServiceModeDirectPacket(int pinA, int pinB, int CV, char value);
 	static DCCPacket makeWriteCVToAddressPacket(int pinA, int pinB, int address, int CV, char value);
 	
-	//S9.2.3 Service Mode Packets:
-	void loadServiceModeDirectPacket(int CV, char value);
 
 	void addOne();  //adds a DCC one-pulse to the pulsetrain
 	void addZero(); //adds a DCC zero-pulse to the pulsetrain
@@ -48,6 +54,7 @@ public:
 
 	//pulsetrain helpers
 	void addPreamble(); //adds a regular preamble
+	bool addAddress(int address);  //adds an extended address, or a baseline address if 1 <= address <= 127
 	void addCK(); //call this at the end of the packet, before adding the packet end bit
 	void addDelimiter(int val); //adds a byte delimiter to the pulse train, val=0|1
 		

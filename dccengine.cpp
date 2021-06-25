@@ -644,6 +644,22 @@ std::string dccCommand(std::string cmd)
 		else response << "Error: can't send a test packet while the dcc pulse train is running.";
 	}
 	
+	else if (cmdstring[0] == "at") {
+		int address, speed, direction;
+		if (cmdstring.size() == 4) {
+			address = atoi(cmdstring[1].c_str());
+			speed = atoi(cmdstring[2].c_str());
+			direction = atoi(cmdstring[3].c_str());
+			response << "<AT 1 " << speed << " " << direction << ">";
+		}
+		else {
+			response << "<Error: malformed command.>";
+		}
+		
+		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight, STEP_14);
+		response << p.getPulseString();
+	}
+	
 	else response << "Error: unrecognized command: " << cmdstring[0];
 
 	return response.str();
