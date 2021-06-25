@@ -543,10 +543,21 @@ std::string dccCommand(std::string cmd)
 			int address, cv, value;
 			
 			DCCPacket r = DCCPacket::makeBaselineResetPacket(PROG1, PROG2);
+			DCCPacket p;
 		
 			if (cmdstring.size() == 2) {
 				address = atoi(cmdstring[1].c_str());
-				DCCPacket p =  DCCPacket::makeServiceModeDirectPacket(PROG1, PROG2, 1, address);
+				p =  DCCPacket::makeServiceModeDirectPacket(PROG1, PROG2, 1, address);
+				response << "<W " << address  <<">";
+			}
+			else if (cmdstring.size() == 3) {
+				cv = atoi(cmdstring[1].c_str());
+				value = atoi(cmdstring[2].c_str());
+				p =  DCCPacket::makeServiceModeDirectPacket(PROG1, PROG2, cv, value);
+				response << "<W " << cv  << " " << value << ">";
+			}
+			else return "Error: malformed command.";
+			
 				
 #ifdef USE_PIGPIOD_IF
 				wave_clear(pigpio_id);
@@ -587,17 +598,8 @@ std::string dccCommand(std::string cmd)
 				gpioWaveDelete(pwave);
 #endif
 				
-				response << "<W " << address  <<">";
-			}
-			else if (cmdstring.size() == 3) {
-				cv = atoi(cmdstring[1].c_str());
-				value = atoi(cmdstring[2].c_str());
-				DCCPacket p = DCCPacket::makeServiceModeDirectPacket(PROG1, PROG2, cv, value);
-				response << "<W " << cv  << " " << value << ">";
-			}
-			else {
-				response << "<Error: malformed command.>";
-			}
+				
+			
 		}
 		else response << "<Error: can't program in ops mode.>";
 
