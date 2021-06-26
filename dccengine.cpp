@@ -59,7 +59,6 @@ struct roster_item {
 	unsigned speed;
 	unsigned direction;
 	unsigned headlight;
-	SPEED_STEPS steps;
 };
 
 class Roster
@@ -70,7 +69,7 @@ public:
 		next = rr.begin();
 	}
 	
-	void update(unsigned address, unsigned speed, unsigned direction, unsigned headlight, SPEED_STEPS steps)
+	void update(unsigned address, unsigned speed, unsigned direction, unsigned headlight)
 	{
 		m.lock();
 		rr[address] = roster_item{ address, speed, direction, headlight}; 
@@ -234,7 +233,7 @@ void runDCC()
 	else {
 		roster_item i = roster.getNext();
 		if (i.address != 0) 
-			commandPacket = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, i.address, i.direction, i.speed, i.headlight,i.steps);
+			commandPacket = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, i.address, i.direction, i.speed, i.headlight);
 		else
 			commandPacket = idlePacket;
 	}
@@ -262,7 +261,7 @@ void runDCC()
 		else {
 			roster_item i = roster.getNext();
 			if (i.address != 0) 
-				commandPacket = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, i.address, i.direction, i.speed, i.headlight, i.steps);
+				commandPacket = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, i.address, i.direction, i.speed, i.headlight);
 			else
 				commandPacket = idlePacket;
 		}
@@ -502,9 +501,9 @@ std::string dccCommand(std::string cmd)
 				response << "<Error: malformed command.>";
 			}
 		
-			DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight, STEP_14);
+			DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight);
 			commandqueue.addCommand(p);
-			roster.update(address, speed, direction, headlight, STEP_14);
+			roster.update(address, speed, direction, headlight);
 		} 
 		else response << "<Error: can't run in programming mode.>";
 	}
@@ -625,7 +624,7 @@ std::string dccCommand(std::string cmd)
 	
 	else if (cmdstring[0] == "test") {
 		if (!running) {
-			DCCPacket testpacket = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, 3,1,1,true, STEP_14);
+			DCCPacket testpacket = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, 3,1,1,true);
 #ifdef USE_PIGPIOD_IF
 			wave_add_generic(pigpio_id, testpacket.getPulseTrain().size(), testpacket.getPulseTrain().data());
 			int wid =  wave_create(pigpio_id);
@@ -644,6 +643,7 @@ std::string dccCommand(std::string cmd)
 		else response << "Error: can't send a test packet while the dcc pulse train is running.";
 	}
 	
+	//temporary, for debugging
 	else if (cmdstring[0] == "at") {
 		int address, speed, direction;
 		if (cmdstring.size() == 4) {
@@ -656,7 +656,7 @@ std::string dccCommand(std::string cmd)
 			response << "<Error: malformed command.>";
 		}
 		
-		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight, STEP_14);
+		DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight);
 		response << p.getPulseString();
 	}
 	

@@ -31,12 +31,12 @@ public:
 	
 	//Baseline packets:
 	static DCCPacket makeBaselineIdlePacket(int pinA, int pinB);
-	static DCCPacket makeBaselineSpeedDirPacket(int pinA, int pinB, unsigned address, unsigned direction, unsigned  speed, bool headlight, SPEED_STEPS steps);
+	static DCCPacket makeBaselineSpeedDirPacket(int pinA, int pinB, unsigned address, unsigned direction, unsigned  speed, bool headlight);
 	static DCCPacket makeBaselineResetPacket(int pinA, int pinB);
 	static DCCPacket makeBaselineBroadcastStopPacket(int pinA, int pinB, BASE_STOP stopcommand);
 	
 	//Extended packets:
-	static DCCPacket makeAdvancedSpeedDirPacket(int pinA, int pinB, unsigned address, unsigned direction, unsigned  speed, bool headlight, SPEED_STEPS steps);
+	static DCCPacket makeAdvancedSpeedDirPacket(int pinA, int pinB, unsigned address, unsigned direction, unsigned  speed, bool headlight);
 
 	
 	//Service mode packets:

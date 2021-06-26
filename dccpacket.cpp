@@ -56,7 +56,7 @@ DCCPacket DCCPacket::makeBaselineIdlePacket(int pinA, int pinB)
 }
 
 
-DCCPacket DCCPacket::makeBaselineSpeedDirPacket(int pinA, int pinB, unsigned address, unsigned direction, unsigned  speed, bool headlight, SPEED_STEPS steps)
+DCCPacket DCCPacket::makeBaselineSpeedDirPacket(int pinA, int pinB, unsigned address, unsigned direction, unsigned  speed, bool headlight)
 {
 	DCCPacket p(pinA, pinB);
 
@@ -172,7 +172,7 @@ DCCPacket DCCPacket::makeBaselineBroadcastStopPacket(int pinA, int pinB, BASE_ST
 
 //Extended packet makers:
 
-DCCPacket DCCPacket::makeAdvancedSpeedDirPacket(int pinA, int pinB, unsigned address, unsigned direction, unsigned  speed, bool headlight, SPEED_STEPS steps)
+DCCPacket DCCPacket::makeAdvancedSpeedDirPacket(int pinA, int pinB, unsigned address, unsigned direction, unsigned  speed, bool headlight)
 {
 	DCCPacket p(pinA, pinB);
 
