@@ -184,6 +184,9 @@ bool running = false;
 //flag to control programming:
 bool programming = false;
 
+//flag to control speed step mode:
+bool steps28 = true;
+
 //GPIO ports to use for DCC output, set in the first part of main()
 int MAIN1, MAIN2, MAINENABLE;
 int PROG1, PROG2, PROGENABLE;
@@ -461,8 +464,11 @@ std::string dccCommand(std::string cmd)
 		}
 	}
 
+	//<D SPEED28|SPEED128> - changes the step mode for <t> commands
 	else if (cmdstring[0] == "D") {
 		if (cmdstring[1] == "CABS") return roster.list();
+		else if (cmdstring[1] == "SPEED28") steps28 = true;
+		else if (cmdstring[1] == "SPEED28") steps28 = false;
 	}
 	
 	//<-[ (int address)]> - forget address, or forget all addresses, if none is specified. returns NONE
@@ -501,7 +507,13 @@ std::string dccCommand(std::string cmd)
 				response << "<Error: malformed command.>";
 			}
 		
-			DCCPacket p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight);
+			DCCPacket p;
+			
+			if (steps28)
+				p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight);
+			else
+				p = DCCPacket::makeAdvancedSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight);
+
 			commandqueue.addCommand(p);
 			roster.update(address, speed, direction, headlight);
 		} 
@@ -673,8 +685,6 @@ std::string dccCommand(std::string cmd)
 	//		+ BaselineBroadcastStopPacket
 
 	//<F (int address) (int function) (1|0 on/off)> cab function: lights, horn, bell, etc. (this will require a dccwave-maintained roster), returns NONE
-	
-	//<D SPEED28|SPEED128> - changes the step mode for <t> commands
 
 	//<W (int address)> - write locomotive address to the programming track
 	//		-+Service Mode Direct Address, CV#19, to the programming track (Long-preamble(>=20 bits) 0 0111CCAA 0 AAAAAAAA 0 DDDDDDDD 0 EEEEEEEE 1)
