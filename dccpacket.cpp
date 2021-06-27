@@ -230,6 +230,47 @@ DCCPacket DCCPacket::makeAdvancedSpeedDirPacket(int pinA, int pinB, unsigned add
 	return p;
 }
 
+DCCPacket DCCPacket::makeAdvancedFunctionPacket(int pinA, int pinB, unsigned address, unsigned group, unsigned value)
+{
+	DCCPacket p(pinA, pinB);
+	if (group > 2) return p;
+	
+	p.resetCK();
+	
+	p.addPreamble();
+
+	p.addDelimiter(0);
+	p.addAddress(address); //If address is >127, the address is a two-byte encoding per S9.2.1, so this is a bit more than a baseline packet
+
+	p.addDelimiter(0);
+	p.resetBT();
+	if (group == 1) {
+		//100 - function group 1
+		p.addOne();
+		p.addZero();
+		p.addZero();
+	}
+	else if (group == 2) {//func >= F5 & func <= F12
+		//101 - function group 2
+		p.addOne();
+		p.addZero();
+		p.addOne();
+	}
+	if ((value & 0b00010000) >> 4) p.addOne(); else p.addZero();
+	if ((value & 0b00001000) >> 3) p.addOne(); else p.addZero();
+	if ((value & 0b00000100) >> 2) p.addOne(); else p.addZero();
+	if ((value & 0b00000010) >> 1) p.addOne(); else p.addZero();
+	if ((value & 0b00000001)) p.addOne(); else p.addZero();
+	p.accumulateCK();
+	
+	p.addDelimiter(0);
+	p.addCK(); 
+
+	p.addDelimiter(1);
+	
+	return p;
+}
+
 DCCPacket DCCPacket::makeWriteCVToAddressPacket(int pinA, int pinB, int address, int CV, char value)
 {
 	DCCPacket p(pinA, pinB);

@@ -59,6 +59,7 @@ struct roster_item {
 	unsigned speed;
 	unsigned direction;
 	unsigned headlight;
+	unsigned function1, function2;
 };
 
 class Roster
@@ -67,6 +68,24 @@ public:
 	Roster() 
 	{
 		next = rr.begin();
+	}
+	
+	int getfunction(unsigned address, unsigned group){
+		if (group == 1) return rr[address].function1;
+		if (group == 2) return rr[address].function2;
+		return -1;
+	}
+	
+	void setfunction(unsigned address, unsigned group, unsigned value)
+	{
+		if (group == 1) rr[address].function1 = value;
+		if (group == 2) rr[address].function2 = value;
+	}
+	
+	roster_item get(unsigned address)
+	{
+		if (rr.find(address) == rr.end()) rr[address] = roster_item{ address, 0, 0, 0}; 
+		return rr[address];
 	}
 	
 	void update(unsigned address, unsigned speed, unsigned direction, unsigned headlight)
@@ -464,6 +483,7 @@ std::string dccCommand(std::string cmd)
 		}
 	}
 
+	//<D CABS> - returns the roster list
 	//<D SPEED28|SPEED128> - changes the step mode for <t> commands
 	else if (cmdstring[0] == "D") {
 		if (cmdstring[1] == "CABS") return roster.list();
@@ -483,8 +503,6 @@ std::string dccCommand(std::string cmd)
 
 	// throttle command: t addr spd dir
 	//<t [1] (int address) (int speed) (0|1 direction)> - throttle comand, returns <T 1 (int speed) (1|0 direction)>
-	//		+ BaselineSpeedDirPacket
-	//		- ExtendedSpeedDirPacket
 	else if (cmdstring[0] == "t") {
 		int address, speed;
 		bool direction;
@@ -520,6 +538,42 @@ std::string dccCommand(std::string cmd)
 		else response << "<Error: can't run in programming mode.>";
 	}
 	
+	//<F address function 1|0> command turns engine decoder functions ON and OFF
+	else if (cmdstring[0] == "F") {
+		int address, func;
+		bool state;
+		DCCPacket p;
+		if (cmdstring.size() == 4) {
+			address = atoi(cmdstring[1].c_str());
+			func = atoi(cmdstring[2].c_str());
+			if (cmdstring[3] == "0")
+				state = false;
+			else
+				state = true;
+			
+			roster_item r = roster.get(address);
+			
+			if ((func >=0) & (func <= 4)) {
+				if (func == 0) func = 5;
+				if (state) r.function1 |= 1 << func; else r.function1 &= ~(1 << func);
+				p = DCCPacket::makeAdvancedFunctionPacket(MAIN1, MAIN2, address, 1, r.function1);
+				roster.setfunction(address, 1, r.function1);
+			}
+			else if ((func >=5) & (func <= 12)) {
+				func -= 5;
+				if (state) r.function2 |= 1 << func; else r.function2 &= ~(1 << func);
+				p = DCCPacket::makeAdvancedFunctionPacket(MAIN1, MAIN2, address, 2, r.function2);
+				roster.setfunction(address, 2, r.function2);
+			}
+			
+			commandqueue.addCommand(p);
+			
+		}
+		else {
+			response << "<Error: malformed command.>";
+		}
+	}
+	
 	//<w (int address) (int cv) (int value) - write value to cv of address on the main track
 	//	
 	else if (cmdstring[0] == "w") {
@@ -531,17 +585,18 @@ std::string dccCommand(std::string cmd)
 				address = atoi(cmdstring[1].c_str());
 				cv = atoi(cmdstring[2].c_str());
 				value = atoi(cmdstring[3].c_str());
+				
+				DCCPacket p = DCCPacket::makeWriteCVToAddressPacket(MAIN1, MAIN2, address, cv, value);
+				commandqueue.addCommand(p);
+				commandqueue.addCommand(p);
+				commandqueue.addCommand(p);
+				commandqueue.addCommand(p);
+				
 				response << "<W " << address << " " << cv << " " << value <<">";
 			}
 			else {
 				response << "<Error: malformed command.>";
 			}
-		
-			DCCPacket p = DCCPacket::makeWriteCVToAddressPacket(MAIN1, MAIN2, address, cv, value);
-			commandqueue.addCommand(p);
-			//commandqueue.addCommand(p);
-			//commandqueue.addCommand(p);
-			//commandqueue.addCommand(p);
 		}
 		else response << "<Error: can't run in programming mode.>";
 

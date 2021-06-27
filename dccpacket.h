@@ -37,7 +37,7 @@ public:
 	
 	//Extended packets:
 	static DCCPacket makeAdvancedSpeedDirPacket(int pinA, int pinB, unsigned address, unsigned direction, unsigned  speed, bool headlight);
-
+	static DCCPacket makeAdvancedFunctionPacket(int pinA, int pinB, unsigned address, unsigned group, unsigned value);
 	
 	//Service mode packets:
 	static DCCPacket makeServiceModeDirectPacket(int pinA, int pinB, int CV, char value);
