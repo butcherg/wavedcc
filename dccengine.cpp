@@ -412,6 +412,24 @@ std::string dccCommand(std::string cmd)
 			}
 			else response << "<Error: invalid mode.>";
 		}
+		if (cmdstring.size() == 1) {
+			if (programming) {
+				response << "<Error: programming mode active.>";
+			}
+			else {
+				if (t == NULL) {
+					running = true;
+					t = new std::thread(&runDCC);
+#ifdef USE_PIGPIOD_IF
+					gpio_write(pigpio_id, MAINENABLE, 1);
+#else
+					gpioWrite(MAINENABLE, 1);
+#endif
+					response << "<p1 MAIN>";
+				}
+				else response << "<Error: DCC pulsetrain already started.";
+			}
+		}
 		else response << "<Error: wavedcc only supports one mode at a time.>";
 		
 	}
@@ -435,7 +453,7 @@ std::string dccCommand(std::string cmd)
 						t->~thread();
 						t = NULL;
 					}
-					response <<  "<p0 MAIN>";
+					response <<  "<p0 MAIN>\n";
 				}
 			}
 			else if (cmdstring[1] == "PROG") {
@@ -449,7 +467,7 @@ std::string dccCommand(std::string cmd)
 #else
 					gpioWrite(PROGENABLE, 0);
 #endif
-					response << "<p0 PROG>";
+					response << "<p0 PROG>\n";
 					
 				}
 			}
@@ -469,7 +487,7 @@ std::string dccCommand(std::string cmd)
 					t->~thread();
 					t = NULL;
 				}
-				response <<  "<p0 MAIN>";
+				response <<  "<p0>\n";
 			}
 			else if (programming) {
 				programming = false;
@@ -478,8 +496,9 @@ std::string dccCommand(std::string cmd)
 #else
 				gpioWrite(PROGENABLE, 0);
 #endif
-				response << "<p0 PROG>";
+				response << "<p0>\n";
 			}
+			else response << "<p0>\n";
 		}
 	}
 
@@ -488,7 +507,7 @@ std::string dccCommand(std::string cmd)
 	else if (cmdstring[0] == "D") {
 		if (cmdstring[1] == "CABS") return roster.list();
 		else if (cmdstring[1] == "SPEED28") steps28 = true;
-		else if (cmdstring[1] == "SPEED28") steps28 = false;
+		else if (cmdstring[1] == "SPEED128") steps28 = false;
 	}
 	
 	//<-[ (int address)]> - forget address, or forget all addresses, if none is specified. returns NONE
@@ -531,6 +550,8 @@ std::string dccCommand(std::string cmd)
 				p = DCCPacket::makeBaselineSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight);
 			else
 				p = DCCPacket::makeAdvancedSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight);
+				
+			printf("%s\n", p.getPulseString().c_str());
 
 			commandqueue.addCommand(p);
 			roster.update(address, speed, direction, headlight);
@@ -671,7 +692,33 @@ std::string dccCommand(std::string cmd)
 
 	}
 
+	//RETURNS: Track power status, Version, Microcontroller type, Motor Shield type, build number, and then any defined turnouts, outputs, or sensors.
+	//Example: <iDCC-EX V-3.0.4 / MEGA / STANDARD_MOTOR_SHIELD G-75ab2ab><H 1 0><H 2 0><H 3 0><H 4 0><Y 52 0><q 53><q 50>
 	else if (cmdstring[0] == "s") {
+		//if (running)
+		//	response << "<p1 MAIN>\n";
+		//else
+		//	response << "<p0 MAIN>\n";
+		response << "<iwavedcc dev / RPi 3 / L298n>\n";
+
+	}
+	
+	//appease JMRI... No turnouts, no output pins, no sensors. 
+	else if ((cmdstring[0] == "T") | (cmdstring[0] == "Z") | (cmdstring[0] == "S") | (cmdstring[0] == "#")) {
+		response << "<X>\n";
+	}
+	
+	//Appease JMRI, <#> request max slots, not documented in DCC++ EX.  Reply is just a large number.
+	else if (cmdstring[0] == "#") {
+		response << "<# 1000d>\n";
+	}
+	
+	//Appease JMRI, no current metering yet
+	else if (cmdstring[0] == "c") {
+		response << "<c CurrentMAIN 0 C Milli 0 2 0 0>\n";
+	}
+
+	else if (cmdstring[0] == "ws") {
 #ifdef USE_PIGPIOD_IF
 		response << "Remote hardware version: " << get_hardware_revision(pigpio_id) << "\n";
 		response << "Remote pigpio(if) version: " << get_pigpio_version(pigpio_id) << "(" << pigpiod_if_version() << ")" << "\n";
@@ -679,6 +726,10 @@ std::string dccCommand(std::string cmd)
 #else
 		response << "Local pigpiod DCBs: " << gpioWaveGetMaxCbs() << "\n";
 #endif
+		if (steps28)
+			response << "Speed step mode: 28\n";
+		else
+			response << "Speed step mode: 128\n";
 		if (running) 
 			response << "DCC pulsetrain running" << "\n";
 		else
