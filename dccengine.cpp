@@ -412,7 +412,7 @@ std::string dccCommand(std::string cmd)
 			}
 			else response << "<Error: invalid mode.>";
 		}
-		if (cmdstring.size() == 1) {
+		else if (cmdstring.size() == 1) {
 			if (programming) {
 				response << "<Error: programming mode active.>";
 			}
@@ -551,7 +551,7 @@ std::string dccCommand(std::string cmd)
 			else
 				p = DCCPacket::makeAdvancedSpeedDirPacket(MAIN1, MAIN2, address, direction, speed, headlight);
 				
-			printf("%s\n", p.getPulseString().c_str());
+			//printf("%s\n", p.getPulseString().c_str());
 
 			commandqueue.addCommand(p);
 			roster.update(address, speed, direction, headlight);
@@ -699,7 +699,10 @@ std::string dccCommand(std::string cmd)
 		//	response << "<p1 MAIN>\n";
 		//else
 		//	response << "<p0 MAIN>\n";
-		response << "<iwavedcc dev / RPi 3 / L298n>\n";
+		//response << "<iwavedcc dev / RPi 3 / L298n>\n";
+
+		//until JMRI gets a wavedcc status regex:
+		response << "<iDCC-EX V-3.0.4 / MEGA / STANDARD_MOTOR_SHIELD G-75ab2ab>\n";
 
 	}
 	
