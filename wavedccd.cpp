@@ -207,14 +207,25 @@ int main(void)
 			std::string cmd = std::string(buf);
 			cmd.erase(cmd.find_last_not_of(" \n\r\t")+1);
 			std::string response = dccCommand(cmd); 
-			send(sender_fd, response.c_str(), response.size(), 0);
+			if (response.find("<p") == std::string::npos) {  //reply only to sender
+				send(sender_fd, response.c_str(), response.size(), 0);
+			}
+			else { //power state command, send response to everyone
+				for(int j = 0; j < fd_count; j++) {
+					int dest_fd = pfds[j].fd;
+					if (dest_fd != listener) {
+						send(dest_fd, response.c_str(), response.size(), 0);
+					}
+				}
+			}
 			
                     }
                 } // END handle data from client
             } // END got ready-to-read from poll()
         } // END looping through file descriptors
     } // END for(;;)--and you thought it would never end!
-    
+
+    //wavedccd-specific:
     dccFinish();
     
     return 0;
