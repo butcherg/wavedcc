@@ -579,16 +579,15 @@ std::string dccCommand(std::string cmd)
 				if (state) r.function1 |= 1 << func; else r.function1 &= ~(1 << func);
 				p = DCCPacket::makeAdvancedFunctionPacket(MAIN1, MAIN2, address, 1, r.function1);
 				roster.setfunction(address, 1, r.function1);
+				commandqueue.addCommand(p);
 			}
 			else if ((func >=5) & (func <= 12)) {
 				func -= 5;
 				if (state) r.function2 |= 1 << func; else r.function2 &= ~(1 << func);
 				p = DCCPacket::makeAdvancedFunctionPacket(MAIN1, MAIN2, address, 2, r.function2);
 				roster.setfunction(address, 2, r.function2);
+				commandqueue.addCommand(p);
 			}
-			
-			commandqueue.addCommand(p);
-			
 		}
 		else {
 			response << "<Error: malformed command.>";
