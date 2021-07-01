@@ -230,10 +230,10 @@ DCCPacket DCCPacket::makeAdvancedSpeedDirPacket(int pinA, int pinB, unsigned add
 	return p;
 }
 
-DCCPacket DCCPacket::makeAdvancedFunctionPacket(int pinA, int pinB, unsigned address, unsigned group, unsigned value)
+//this function assumes the value is completely constructed by the caller:
+DCCPacket DCCPacket::makeAdvancedFunctionGroupPacket(int pinA, int pinB, unsigned address, unsigned value)
 {
 	DCCPacket p(pinA, pinB);
-	if (group > 2) return p;
 	
 	p.resetCK();
 	
@@ -244,19 +244,76 @@ DCCPacket DCCPacket::makeAdvancedFunctionPacket(int pinA, int pinB, unsigned add
 
 	p.addDelimiter(0);
 	p.resetBT();
-	if (group == 1) {
-		//100 - function group 1
-		p.addOne();
-		p.addZero();
-		p.addZero();
-	}
-	else if (group == 2) {//func >= F5 & func <= F12
-		//101 - function group 2
-		p.addOne();
-		p.addZero();
-		p.addOne();
-	}
-	if ((value & 0b00010000) >> 4) p.addOne(); else p.addZero();
+	if ((value & 0b10000000) >> 7) p.addOne(); else p.addZero();
+	if ((value & 0b01000000) >> 6) p.addOne(); else p.addZero();
+	if ((value & 0b00100000) >> 5) p.addOne(); else p.addZero();
+	if ((value & 0b00010000) >> 4) p.addOne(); else p.addZero(); 
+	if ((value & 0b00001000) >> 3) p.addOne(); else p.addZero();
+	if ((value & 0b00000100) >> 2) p.addOne(); else p.addZero();
+	if ((value & 0b00000010) >> 1) p.addOne(); else p.addZero();
+	if ((value & 0b00000001)) p.addOne(); else p.addZero();
+	p.accumulateCK();
+	
+	p.addDelimiter(0);
+	p.addCK(); 
+
+	p.addDelimiter(1);
+	
+	return p;
+	
+}
+
+DCCPacket DCCPacket::makeAdvancedFunctionGroupOnePacket(int pinA, int pinB, unsigned address, unsigned value)
+{
+	DCCPacket p(pinA, pinB);
+	
+	p.resetCK();
+	
+	p.addPreamble();
+
+	p.addDelimiter(0);
+	p.addAddress(address); //If address is >127, the address is a two-byte encoding per S9.2.1, so this is a bit more than a baseline packet
+
+	p.addDelimiter(0);
+	p.resetBT();
+	//100 - function group 1
+	p.addOne();
+	p.addZero();
+	p.addZero();
+
+	if ((value & 0b00010000) >> 4) p.addOne(); else p.addZero(); //only defined for 14-step mode (CV# 29 bit 1 = 1), then it's FL.  Otherwise, it's undefined...
+	if ((value & 0b00001000) >> 3) p.addOne(); else p.addZero();
+	if ((value & 0b00000100) >> 2) p.addOne(); else p.addZero();
+	if ((value & 0b00000010) >> 1) p.addOne(); else p.addZero();
+	if ((value & 0b00000001)) p.addOne(); else p.addZero();
+	p.accumulateCK();
+	
+	p.addDelimiter(0);
+	p.addCK(); 
+
+	p.addDelimiter(1);
+	
+	return p;
+}
+
+DCCPacket DCCPacket::makeAdvancedFunctionGroupTwoPacket(int pinA, int pinB, unsigned address, unsigned value)
+{
+	DCCPacket p(pinA, pinB);
+	
+	p.resetCK();
+	
+	p.addPreamble();
+
+	p.addDelimiter(0);
+	p.addAddress(address); //If address is >127, the address is a two-byte encoding per S9.2.1, so this is a bit more than a baseline packet
+
+	p.addDelimiter(0);
+	p.resetBT();
+	//101 - function group 2
+	p.addOne();
+	p.addZero();
+	p.addOne();
+	if ((value & 0b00010000) >> 4) p.addOne(); else p.addZero();  //assumes the calling function set this properly for F5-F8 (1) vs F9-F12 (0)
 	if ((value & 0b00001000) >> 3) p.addOne(); else p.addZero();
 	if ((value & 0b00000100) >> 2) p.addOne(); else p.addZero();
 	if ((value & 0b00000010) >> 1) p.addOne(); else p.addZero();

@@ -559,6 +559,23 @@ std::string dccCommand(std::string cmd)
 		else response << "<Error: can't run in programming mode.>";
 	}
 	
+	//<f address byte [byte]> sets the functions F1-F12 using the constructed byte
+	else if (cmdstring[0] == "f") {
+		int address, byte;
+		DCCPacket p;
+		if (cmdstring.size() == 3) {
+			address = atoi(cmdstring[1].c_str());
+			byte = atoi(cmdstring[2].c_str());
+			p = DCCPacket::makeAdvancedFunctionGroupPacket(MAIN1, MAIN2, address, byte);
+			commandqueue.addCommand(p);
+		}
+		else {
+			response << "<Error: malformed command.>";
+		}
+		
+	}
+
+/*  gotta rethink this one...
 	//<F address function 1|0> command turns engine decoder functions ON and OFF
 	else if (cmdstring[0] == "F") {
 		int address, func;
@@ -593,6 +610,7 @@ std::string dccCommand(std::string cmd)
 			response << "<Error: malformed command.>";
 		}
 	}
+*/
 	
 	//<w (int address) (int cv) (int value) - write value to cv of address on the main track
 	//	
