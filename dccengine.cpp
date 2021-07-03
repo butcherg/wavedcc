@@ -59,7 +59,7 @@ struct roster_item {
 	unsigned speed;
 	unsigned direction;
 	unsigned headlight;
-	unsigned function1, function2;
+	unsigned fgroup1, fgroup2, fgroup3;
 };
 
 class Roster
@@ -68,24 +68,22 @@ public:
 	Roster() 
 	{
 		next = rr.begin();
-	}
-	
-	int getfunction(unsigned address, unsigned group){
-		if (group == 1) return rr[address].function1;
-		if (group == 2) return rr[address].function2;
-		return -1;
-	}
-	
-	void setfunction(unsigned address, unsigned group, unsigned value)
-	{
-		if (group == 1) rr[address].function1 = value;
-		if (group == 2) rr[address].function2 = value;
+		//fgroup1 = 128;
+		//fgroup2 = 176;
+		//fgroup3 = 160;
 	}
 	
 	roster_item get(unsigned address)
 	{
-		if (rr.find(address) == rr.end()) rr[address] = roster_item{ address, 0, 0, 0}; 
+		if (rr.find(address) == rr.end()) rr[address] = roster_item{ address, 0, 0, 0, 128, 176, 160}; 
 		return rr[address];
+	}
+	
+	void set(unsigned address, roster_item r)
+	{
+		m.lock();
+		rr[address] = r;
+		m.unlock();
 	}
 	
 	void update(unsigned address, unsigned speed, unsigned direction, unsigned headlight)
@@ -97,7 +95,7 @@ public:
 	
 	roster_item getNext()
 	{
-		if (rr.size() == 0) return roster_item{ 0, 0, 0, 0}; 
+		if (rr.size() == 0) return roster_item{ 0, 0, 0, 0, 128, 176, 160}; 
 		roster_item i;
 		m.lock();
 		i = next->second;
@@ -575,7 +573,6 @@ std::string dccCommand(std::string cmd)
 		
 	}
 
-/*  gotta rethink this one...
 	//<F address function 1|0> command turns engine decoder functions ON and OFF
 	else if (cmdstring[0] == "F") {
 		int address, func;
@@ -592,17 +589,24 @@ std::string dccCommand(std::string cmd)
 			roster_item r = roster.get(address);
 			
 			if ((func >=0) & (func <= 4)) {
-				if (func == 0) func = 5;
-				if (state) r.function1 |= 1 << func; else r.function1 &= ~(1 << func);
-				p = DCCPacket::makeAdvancedFunctionPacket(MAIN1, MAIN2, address, 1, r.function1);
-				roster.setfunction(address, 1, r.function1);
+				if (func == 0) func = 4; else func -= 1;
+				if (state) r.fgroup1 |= 1 << func; else r.fgroup1 &= ~(1 << func);
+				p = DCCPacket::makeAdvancedFunctionGroupPacket(MAIN1, MAIN2, address, r.fgroup1);
+				roster.set(address, r);
 				commandqueue.addCommand(p);
 			}
-			else if ((func >=5) & (func <= 12)) {
+			else if ((func >=5) & (func <= 8)) {
 				func -= 5;
-				if (state) r.function2 |= 1 << func; else r.function2 &= ~(1 << func);
-				p = DCCPacket::makeAdvancedFunctionPacket(MAIN1, MAIN2, address, 2, r.function2);
-				roster.setfunction(address, 2, r.function2);
+				if (state) r.fgroup2 |= 1 << func; else r.fgroup2 &= ~(1 << func);
+				p = DCCPacket::makeAdvancedFunctionGroupPacket(MAIN1, MAIN2, address, r.fgroup2);
+				roster.set(address, r);
+				commandqueue.addCommand(p);
+			}
+			else if ((func >=9) & (func <= 12)) {
+				func -= 9;
+				if (state) r.fgroup3 |= 1 << func; else r.fgroup3 &= ~(1 << func);
+				p = DCCPacket::makeAdvancedFunctionGroupPacket(MAIN1, MAIN2, address, r.fgroup3);
+				roster.set(address, r);
 				commandqueue.addCommand(p);
 			}
 		}
@@ -610,7 +614,7 @@ std::string dccCommand(std::string cmd)
 			response << "<Error: malformed command.>";
 		}
 	}
-*/
+
 	
 	//<w (int address) (int cv) (int value) - write value to cv of address on the main track
 	//	

@@ -259,6 +259,8 @@ DCCPacket DCCPacket::makeAdvancedFunctionGroupPacket(int pinA, int pinB, unsigne
 
 	p.addDelimiter(1);
 	
+	//printf("%s\n", p.getPulseString().c_str());
+	
 	return p;
 	
 }
