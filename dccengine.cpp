@@ -98,7 +98,10 @@ public:
 	void update(unsigned address, unsigned speed, unsigned direction, unsigned headlight)
 	{
 		m.lock();
-		rr[address] = roster_item{ address, speed, direction, headlight}; 
+		if (rr.find(address) == rr.end()) rr[address] = roster_item{ address, 0, 0, 0, 128, 176, 160}; 
+		rr[address].speed = speed;
+		rr[address].direction = direction;
+		rr[address].headlight = headlight;
 		m.unlock();
 	}
 	
