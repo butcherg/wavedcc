@@ -86,6 +86,15 @@ public:
 		m.unlock();
 	}
 	
+	void setGroup(unsigned address, unsigned group, unsigned val)
+	{
+		m.lock();
+		if (group == 1) rr[address].fgroup1 = val;
+		else if (group == 2) rr[address].fgroup2 = val;
+		else if (group == 3) rr[address].fgroup3 = val;
+		m.unlock();
+	}
+	
 	void update(unsigned address, unsigned speed, unsigned direction, unsigned headlight)
 	{
 		m.lock();
@@ -592,21 +601,21 @@ std::string dccCommand(std::string cmd)
 				if (func == 0) func = 4; else func -= 1;
 				if (state) r.fgroup1 |= 1 << func; else r.fgroup1 &= ~(1 << func);
 				p = DCCPacket::makeAdvancedFunctionGroupPacket(MAIN1, MAIN2, address, r.fgroup1);
-				roster.set(address, r);
+				roster.setGroup(address, 1, r.fgroup1);
 				commandqueue.addCommand(p);
 			}
 			else if ((func >=5) & (func <= 8)) {
 				func -= 5;
 				if (state) r.fgroup2 |= 1 << func; else r.fgroup2 &= ~(1 << func);
 				p = DCCPacket::makeAdvancedFunctionGroupPacket(MAIN1, MAIN2, address, r.fgroup2);
-				roster.set(address, r);
+				roster.setGroup(address, 2, r.fgroup2);
 				commandqueue.addCommand(p);
 			}
 			else if ((func >=9) & (func <= 12)) {
 				func -= 9;
 				if (state) r.fgroup3 |= 1 << func; else r.fgroup3 &= ~(1 << func);
 				p = DCCPacket::makeAdvancedFunctionGroupPacket(MAIN1, MAIN2, address, r.fgroup3);
-				roster.set(address, r);
+				roster.setGroup(address, 3, r.fgroup3);
 				commandqueue.addCommand(p);
 			}
 		}
