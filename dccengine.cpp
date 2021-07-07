@@ -275,13 +275,15 @@ void runDCC()
 		wave_add_generic(pigpio_id, commandPacket.getPulseTrain().size(), commandPacket.getPulseTrain().data());
 		nextWid =  wave_create_and_pad(pigpio_id, 50);
 		wave_send_using_mode(pigpio_id, nextWid, PI_WAVE_MODE_ONE_SHOT_SYNC);
-		time_sleep((float) wave_get_micros(pigpio_id) / 1000000.0);
+		int i=0;
+		while (wave_tx_at(pigpio_id) == wid) { time_sleep((float) (wave_get_micros(pigpio_id)-2000) / 1000000.0); i++; }
+		printf("%d, %d\n",wave_get_micros(pigpio_id), i); fflush(stdout);
 		wave_delete(pigpio_id,  wid);
 #else
 		gpioWaveAddGeneric(commandPacket.getPulseTrain().size(), commandPacket.getPulseTrain().data());
 		nextWid = gpioWaveCreatePad(50, 50, 0);
 		gpioWaveTxSend(nextWid, PI_WAVE_MODE_ONE_SHOT_SYNC);
-		time_sleep((float) gpioWaveGetMicros() / 1000000.0);
+		while (gpio_WaveTxAt() == wid) time_sleep((float) (gpioWaveGetMicros()-2000) / 1000000.0);
 		gpioWaveDelete(wid);
 #endif
 		wid = nextWid;
