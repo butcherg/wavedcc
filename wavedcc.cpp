@@ -8,6 +8,10 @@
 int main (int argc, char **argv)
 {
 	std::string initresult = dccInit();
+	if (initresult.find("Error") != std::string::npos) {
+		std::cout << initresult << std::endl;
+		exit(1);
+	}
 	std::string cmd;
 	
 	while (true) {
