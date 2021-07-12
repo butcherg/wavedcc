@@ -741,10 +741,12 @@ std::string dccCommand(std::string cmd)
 	//RETURNS: Track power status, Version, Microcontroller type, Motor Shield type, build number, and then any defined turnouts, outputs, or sensors.
 	//Example: <iDCC-EX V-3.0.4 / MEGA / STANDARD_MOTOR_SHIELD G-75ab2ab><H 1 0><H 2 0><H 3 0><H 4 0><Y 52 0><q 53><q 50>
 	else if (cmdstring[0] == "s") {
-		//if (running)
-		//	response << "<p1 MAIN>\n";
-		//else
-		//	response << "<p0 MAIN>\n";
+		if (running)
+			response << "<p1 MAIN>";
+		else if (programming)
+			response << "<p1 PROG>";
+		else
+			response << "<p0>";
 		//response << "<iwavedcc dev / RPi 3 / L298n>\n";
 
 		//until JMRI gets a wavedcc status regex:
