@@ -1,4 +1,36 @@
 /*
+    This file is part of wavedcc,
+    
+    The majority of this file is granted to the public domain by
+    Brian “Beej Jorgensen” Hall.  It is the poll()-based chat server
+    posted here: 
+    
+    https://beej.us/guide/bgnet/examples/pollserver.c, 
+    
+    and the public domain release is announced here:
+    
+    https://beej.us/guide/bgnet/html/#legal
+    
+    
+    wavedcc code inserted to make this program wavedccd is 
+    Copyright (C) 2021 Glenn Butcher, and released for use
+    under the terms of GPL 3.0
+    
+    wavedcc is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    
+    wavedcc is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    
+    You should have received a copy of the GNU General Public License
+    along with wavedcc.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+/*
 ** pollserver.c -- a cheezy multiperson chat server
 */
 
