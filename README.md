@@ -45,7 +45,7 @@ $ sudo systemctl start pigpiod
 Then, either program can be run from the command line as the regular user.  If the direct GPIO access was compiled, wavedcc and
 wavedccd must be run as root.
 
-Both wavedcc and wavedccd use GPIO 2 and 3 by default for the DCC signal modulation (MAIN1 and MAIN2) and GPIO 4 for MAINENABle; 
+Both wavedcc and wavedccd use GPIO 2 and 3 by default for the DCC signal modulation (MAIN1 and MAIN2) and GPIO 4 for MAINENABLE; 
 it's recommended to use a wavedcc.conf file residing in the same directory as the executables to set these properties to the
 GPIOs you prefer.  The corresponding properies for service mode are PROG1, PROG2, and PROGENABLE.  Both programs if compiled with 
 -DUSE_PIGPIOD_IF=ON will by default attempt to connect to a pigpiod at localhost using port 8888; these can be changed in the 
