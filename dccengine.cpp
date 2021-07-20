@@ -375,7 +375,8 @@ std::string dccInit()
 	std::string port = "8888";
 	if (config.find("host") != config.end()) host = config["host"];
 	if (config.find("port") != config.end()) host = config["port"];
-	if (pigpio_start((char *) host.c_str(), (char *) port.c_str()) < 0) return "Error: GPIO Initialization failed.";
+	pigpio_id = pigpio_start((char *) host.c_str(), (char *) port.c_str());
+	if (pigpio_id < 0) return "Error: GPIO Initialization failed.";
 	set_mode(pigpio_id, MAIN1, PI_OUTPUT);
 	set_mode(pigpio_id, MAIN2, PI_OUTPUT);
 	set_mode(pigpio_id, MAINENABLE, PI_OUTPUT);
