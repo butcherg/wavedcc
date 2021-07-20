@@ -171,11 +171,11 @@ int i2c_configure()
 
 #ifdef USE_PIGPIOD_IF
 	ina219_pigpio_id = pigpioid;
-	if (result = i2c_handle = i2c_open(ina219_pigpio_id, i2c_bus, i2c_address, 0) < 0 ) return result;
+	i2c_handle = i2c_open(ina219_pigpio_id, i2c_bus, i2c_address, 0);
 #else
-	if (result = i2c_handle = i2cOpen(i2c_bus, i2c_address, 0) < 0 ) return result;
+	i2c_handle = i2cOpen(i2c_bus, i2c_address, 0);
 #endif
-	return 1;
+	return i2c_handle;
 }
 
 void ina219_configure()

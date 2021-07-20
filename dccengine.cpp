@@ -412,7 +412,7 @@ std::string dccInit()
 	wave_clear(pigpio_id);
 	std::string wavelet_mode = "remote (" + host + ")";
 	signal(SIGINT, signal_handler);
-	if (i2c_configure(pigpio_id) == 1) return "Error: I2C configuration failed";
+	if (i2c_configure(pigpio_id) < 0) return "Error: I2C configuration failed";
 #else
 	if (gpioInitialise() < 0) return "Error: GPIO Initialization failed.";
 	gpioSetMode(MAIN1, PI_OUTPUT);
@@ -424,9 +424,9 @@ std::string dccInit()
 	gpioWaveClear();
 	std::string wavelet_mode = "native";
 	gpioSetSignalFunc(SIGINT, signal_handler);
-	if (i2c_configure() == 1) return "Error: I2C configuration failed";
+	if (i2c_configure() < 0) return "Error: I2C configuration failed";
 #endif
-
+	ina219_configure();
 	c = new std::thread(&runDCCCurrent);
 
 	std::stringstream result;
