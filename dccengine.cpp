@@ -368,6 +368,7 @@ void runDCC()
 
 void signal_handler(int signum) {
 	std::cout << std::endl << "exiting (signal " << signum << ")..." << std::endl;
+	i2c_closeout();
 #ifdef USE_PIGPIOD_IF
 	pigpio_stop(pigpio_id);
 #else

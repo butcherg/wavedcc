@@ -178,6 +178,15 @@ int i2c_configure()
 	return i2c_handle;
 }
 
+void i2c_closeout()
+{
+#ifdef USE_PIGPIOD_IF
+	i2c_close(ina219_pigpio_id, i2c_handle);
+#else
+	i2cClose(i2c_handle);
+#endif
+}
+
 void ina219_configure()
 {
 	// the magic numbers...
