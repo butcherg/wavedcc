@@ -28,6 +28,7 @@
 #include <sys/stat.h>
 #include <signal.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <string>
 #include <iostream> 
@@ -41,6 +42,7 @@
 #include <algorithm>
 
 #include "dccpacket.h"
+#include "ina219.c"
 
 class CommandQueue
 {
@@ -236,18 +238,42 @@ bool programming = false;
 //flag to control speed step mode:
 bool steps28 = true;
 
+//current and voltage variables, populated by runDCCCurrent:
+float voltage;
+float current;
+float highwater_current;
+std::mutex vc;  //use this to guard voltage/current/highwater access
+
 //GPIO ports to use for DCC output, set in the first part of main()
 int MAIN1, MAIN2, MAINENABLE;
 int PROG1, PROG2, PROGENABLE;
 
-//for runDCC() engine thread:
+//for runDCC() engine and runDCCCurrent() current monitoring threads:
 std::thread *t = NULL;
-
+std::thread *c = NULL;
 
 #ifdef USE_PIGPIOD_IF
 //pigpiod_id hold the identifier returned at initialization, needed by all pigpiod function calls
 int pigpio_id;
 #endif
+
+//Thsi routine is to be run as a thread.  It should be started shortly after initialization and
+//left to run for the duration of the execution.  It basically just loops forever, sampling the 
+//voltage and current every 1ms and posting it to global variables.  There is also a "high-water
+//mark" variable, where the maximum current read to-date is posted; this variable can be zeroed
+//out for CV reading/verifying.
+//
+void runDCCCurrent()
+{
+	while (true) {
+		vc.lock();
+		voltage = get_voltage();
+		current = get_current();
+		if (current > highwater_current) highwater_current = current;
+		vc.unlock();
+		usleep(1000); //every millisecond?
+	}
+} 
 
 //uses the example specified at http://abyz.me.uk/rpi/pigpio/cif.html#gpioWaveCreatePad.
 //
@@ -386,6 +412,7 @@ std::string dccInit()
 	wave_clear(pigpio_id);
 	std::string wavelet_mode = "remote (" + host + ")";
 	signal(SIGINT, signal_handler);
+	if (i2c_configure(pigpio_id) == 1) return "Error: I2C configuration failed";
 #else
 	if (gpioInitialise() < 0) return "Error: GPIO Initialization failed.";
 	gpioSetMode(MAIN1, PI_OUTPUT);
@@ -397,7 +424,10 @@ std::string dccInit()
 	gpioWaveClear();
 	std::string wavelet_mode = "native";
 	gpioSetSignalFunc(SIGINT, signal_handler);
+	if (i2c_configure() == 1) return "Error: I2C configuration failed";
 #endif
+
+	c = new std::thread(&runDCCCurrent);
 
 	std::stringstream result;
 	result << "outgpios: " << MAIN1 << "|" << MAIN2 << std::endl << "mode: " << wavelet_mode << std::endl;
@@ -770,8 +800,13 @@ std::string dccCommand(std::string cmd)
 		//response << "<iwavedcc dev / RPi 3 / L298n>\n";
 
 		//until JMRI gets a wavedcc status regex:
-		response << "<iDCC-EX V-3.0.4 / MEGA / STANDARD_MOTOR_SHIELD G-75ab2ab>\n";
+		response << "<iDCC-EX V-0.0.0 / MEGA / STANDARD_MOTOR_SHIELD G-75ab2ab>\n";
 
+	}
+	
+	//RETURNS: <c "CurrentMAIN" CURRENT C "Milli" "0" MAX_MA "1" TRIP_MA >
+	else if (cmdstring[0] == "c") {
+		response << "<c \"CurrentMAIN " << current << " C Milli 0 2000 1 1800 >";
 	}
 	
 	//appease JMRI... No turnouts, no output pins, no sensors. 
