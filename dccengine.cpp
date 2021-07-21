@@ -42,7 +42,7 @@
 #include <algorithm>
 
 #include "dccpacket.h"
-#include "ina219.c"
+#include "ina219.h"
 
 class CommandQueue
 {
@@ -243,6 +243,7 @@ float voltage;
 float current;
 float highwater_current;
 std::mutex vc;  //use this to guard voltage/current/highwater access
+INA219 ina; //The class for interface with the INA219 through I2C
 
 //GPIO ports to use for DCC output, set in the first part of main()
 int MAIN1, MAIN2, MAINENABLE;
@@ -267,8 +268,8 @@ void runDCCCurrent()
 {
 	while (true) {
 		vc.lock();
-		voltage = get_voltage();
-		current = get_current();
+		voltage = ina.get_voltage();
+		current = ina.get_current();
 		if (current > highwater_current) highwater_current = current;
 		vc.unlock();
 		usleep(1000); //every millisecond?
@@ -368,7 +369,7 @@ void runDCC()
 
 void signal_handler(int signum) {
 	std::cout << std::endl << "exiting (signal " << signum << ")..." << std::endl;
-	i2c_closeout();
+	//i2c_closeout();
 #ifdef USE_PIGPIOD_IF
 	pigpio_stop(pigpio_id);
 #else
@@ -413,7 +414,8 @@ std::string dccInit()
 	wave_clear(pigpio_id);
 	std::string wavelet_mode = "remote (" + host + ")";
 	signal(SIGINT, signal_handler);
-	if (i2c_configure(pigpio_id) < 0) return "Error: I2C configuration failed";
+	ina.configure(pigpio_id);
+	
 #else
 	if (gpioInitialise() < 0) return "Error: GPIO Initialization failed.";
 	gpioSetMode(MAIN1, PI_OUTPUT);
@@ -425,9 +427,9 @@ std::string dccInit()
 	gpioWaveClear();
 	std::string wavelet_mode = "native";
 	gpioSetSignalFunc(SIGINT, signal_handler);
-	if (i2c_configure() < 0) return "Error: I2C configuration failed";
+	ina.configure();
 #endif
-	ina219_configure();
+
 	c = new std::thread(&runDCCCurrent);
 
 	std::stringstream result;
