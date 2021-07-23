@@ -399,8 +399,8 @@ std::string dccInit()
 	if (fileExists("wavedcc.conf")) config = getConfig("wavedcc.conf");
 
 	//for configuration debug:
-	//for(std::map<std::string, std::string>::iterator it = config.begin(); it!= config.end(); ++it)
-	//	std::cout << it->first << " = " << it->second << std::endl;
+	for(std::map<std::string, std::string>::iterator it = config.begin(); it!= config.end(); ++it)
+		std::cout << it->first << " = " << it->second << std::endl;
 	
 	if (config.find("main1") != config.end()) MAIN1 = atoi(config["main1"].c_str());
 	if (config.find("main2") != config.end()) MAIN2 = atoi(config["main2"].c_str());
@@ -425,7 +425,8 @@ std::string dccInit()
 	wave_clear(pigpio_id);
 	std::string wavelet_mode = "remote (" + host + ")";
 	signal(SIGINT, signal_handler);
-	ina.configure(pigpio_id);	
+	//ina.configure(pigpio_id);	
+	//ina.configure((const char *) host.c_str(), (const char *) port.c_str());
 #else
 	int result;
 	result = gpioInitialise();
@@ -439,10 +440,10 @@ std::string dccInit()
 	gpioWaveClear();
 	std::string wavelet_mode = "native";
 	gpioSetSignalFunc(SIGINT, signal_handler);
-	ina.configure();
+	//ina.configure();
 #endif
 
-	c = new std::thread(&runDCCCurrent);
+	//c = new std::thread(&runDCCCurrent);
 
 	std::stringstream result;
 	result << "outgpios: " << MAIN1 << "|" << MAIN2 << std::endl << "mode: " << wavelet_mode << std::endl;

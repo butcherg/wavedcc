@@ -162,6 +162,6 @@ struct err_rec pigpio_errorlist [] {
 
 err_rec pigpioError(int errornum)
 {
-	return pigpio_errorlist[errornum];
+	return pigpio_errorlist[abs(errornum)];
 }
 

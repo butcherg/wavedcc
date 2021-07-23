@@ -30,12 +30,17 @@ public:
 	INA219() { }
 
 #ifdef USE_PIGPIOD_IF
-	void configure (int pigpioid)
+//	void configure (int pigpioid)
+	void configure (const char * host, const char * port)
 	{
 		i2c_bus = 1;
 		i2c_address=0x40;
-		pigpio_id = pigpioid;
-		if ((i2c_handle = i2c_open(pigpio_id, i2c_bus, i2c_address, 0)) < 0) err(i2c_handle);
+
+//		pigpio_id = pigpioid;
+		if ((pigpio_id = pigpio_start((char *) host, (char *) port)) < 0) err(pigpio_id, "pigpio_start");
+
+		if ((i2c_handle = i2c_open(pigpio_id, i2c_bus, i2c_address, 0)) < 0) err(i2c_handle, "ic2_open");
+		printf("i2c_handle: %d\n", i2c_handle);
 		//register_write( CONFIG_REG, 0x1eef);		//16V
 		register_write( CONFIG_REG, 0x3eef); 		//32V
 		register_write( CALIBRATION_REG, 0x8332);
@@ -45,7 +50,7 @@ public:
 	{
 		i2c_bus = 1;
 		i2c_address=0x40;
-		if (i2c_handle = i2cOpen(i2c_bus, i2c_address, 0) < 0) err(i2c_handle);
+		if (i2c_handle = i2cOpen(i2c_bus, i2c_address, 0) < 0) err(i2c_handle, "ic2Open");
 		//register_write( CONFIG_REG, 0x1eef);		//16V
 		register_write( CONFIG_REG, 0x3eef); 		//32V
 		register_write( CALIBRATION_REG, 0x8332);
@@ -79,16 +84,16 @@ public:
 	void err(int error, const char * msg)
 	{
 		err_rec r = pigpioError(error);
-		printf("%s: %s - %s\n",r.name.c_str(), r.description.c_str());
+		printf("%s: %s - %s\n", msg, r.name.c_str(), r.description.c_str());
 	}
 
 	int i2c_read( unsigned char *buf, int len )
 	{
 		int rc = 0;
 #ifdef USE_PIGPIOD_IF
-		if (rc = i2c_read_device(pigpio_id, i2c_handle, (char *) buf, len) <= 0 ) 
+		if ((rc = i2c_read_device(pigpio_id, i2c_handle, (char *) buf, len)) <= 0 ) 
 #else
-		if (rc = i2cReadDevice(i2c_handle, (char *) buf, len) <= 0 ) 
+		if ((rc = i2cReadDevice(i2c_handle, (char *) buf, len)) <= 0 ) 
 #endif
 
 		{
@@ -103,11 +108,12 @@ public:
 	int i2c_write( unsigned char *buf, int len )
 	{
 		int rc = 0;
+		printf("i2c_write - i2c_handle: %d\n", i2c_handle);
 
 #ifdef USE_PIGPIOD_IF
-		if (rc = i2c_write_device(pigpio_id, i2c_handle, (char *) buf, len) != 0)
+		if ((rc = i2c_write_device(pigpio_id, i2c_handle, (char *) buf, len)) != 0)
 #else
-		if (rc = i2cWriteDevice(i2c_handle, (char *) buf, len) != 0)
+		if ((rc = i2cWriteDevice(i2c_handle, (char *) buf, len)) != 0)
 #endif
 		{
 			err(rc, "I2C write");
