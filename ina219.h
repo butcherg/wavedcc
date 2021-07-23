@@ -76,23 +76,23 @@ public:
 	}
 
 
-	void err(int error)
+	void err(int error, const char * msg)
 	{
 		err_rec r = pigpioError(error);
-		printf("%s: %s\n",r.name.c_str(), r.description.c_str());
+		printf("%s: %s - %s\n",r.name.c_str(), r.description.c_str());
 	}
 
 	int i2c_read( unsigned char *buf, int len )
 	{
 		int rc = 0;
 #ifdef USE_PIGPIOD_IF
-		if (i2c_read_device(pigpio_id, i2c_handle, (char *) buf, len) <= 0 ) 
+		if (rc = i2c_read_device(pigpio_id, i2c_handle, (char *) buf, len) <= 0 ) 
 #else
-		if (i2cReadDevice(i2c_handle, (char *) buf, len) <= 0 ) 
+		if (rc = i2cReadDevice(i2c_handle, (char *) buf, len) <= 0 ) 
 #endif
 
 		{
-			printf( "I2C read failed\n" );
+			err(rc, "I2C read");
 			rc = -1;
 		}
 
@@ -105,12 +105,12 @@ public:
 		int rc = 0;
 
 #ifdef USE_PIGPIOD_IF
-		if (i2c_write_device(pigpio_id, i2c_handle, (char *) buf, len) != 0)
+		if (rc = i2c_write_device(pigpio_id, i2c_handle, (char *) buf, len) != 0)
 #else
-		if (i2cWriteDevice(i2c_handle, (char *) buf, len) != 0)
+		if (rc = i2cWriteDevice(i2c_handle, (char *) buf, len) != 0)
 #endif
 		{
-			printf( "I2C write failed\n" );
+			err(rc, "I2C write");
 			rc = -1;
 		}
 
