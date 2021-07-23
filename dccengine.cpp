@@ -391,8 +391,9 @@ void signal_handler(int signum) {
 
 std::string dccInit()
 {
-	MAIN1=2;
-	MAIN2=3;
+	MAIN1=17;
+	MAIN2=27;
+	MAINENABLE=22;
 
 	//read configuration from wavedcc.conf
 	std::map<std::string, std::string> config;
