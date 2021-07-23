@@ -22,6 +22,7 @@
 #else
 #include <pigpio.h>
 #endif
+//#include "pigpio_errors.h"
 
 #include <stdio.h>
 #include <sys/types.h>
@@ -43,6 +44,16 @@
 
 #include "dccpacket.h"
 #include "ina219.h"
+
+
+void pigpio_err(int error)
+{
+	err_rec r = pigpioError(error);
+	std::cout << r.name << " " << r.description << std::endl;
+	exit(1);
+}
+
+
 
 class CommandQueue
 {
@@ -272,7 +283,7 @@ void runDCCCurrent()
 		current = ina.get_current();
 		if (current > highwater_current) highwater_current = current;
 		vc.unlock();
-		usleep(1000); //every millisecond?
+		usleep(1000*1000); //every millisecond?
 	}
 } 
 
@@ -404,7 +415,7 @@ std::string dccInit()
 	if (config.find("host") != config.end()) host = config["host"];
 	if (config.find("port") != config.end()) host = config["port"];
 	pigpio_id = pigpio_start((char *) host.c_str(), (char *) port.c_str());
-	if (pigpio_id < 0) return "Error: GPIO Initialization failed.";
+	if (pigpio_id < 0) pigpio_err(pigpio_id);
 	set_mode(pigpio_id, MAIN1, PI_OUTPUT);
 	set_mode(pigpio_id, MAIN2, PI_OUTPUT);
 	set_mode(pigpio_id, MAINENABLE, PI_OUTPUT);
@@ -414,10 +425,11 @@ std::string dccInit()
 	wave_clear(pigpio_id);
 	std::string wavelet_mode = "remote (" + host + ")";
 	signal(SIGINT, signal_handler);
-	ina.configure(pigpio_id);
-	
+	ina.configure(pigpio_id);	
 #else
-	if (gpioInitialise() < 0) return "Error: GPIO Initialization failed.";
+	int result;
+	result = gpioInitialise();
+	if (result < 0) pigpio_err(result);
 	gpioSetMode(MAIN1, PI_OUTPUT);
 	gpioSetMode(MAIN2, PI_OUTPUT);
 	gpioSetMode(MAINENABLE, PI_OUTPUT);
