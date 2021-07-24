@@ -397,11 +397,21 @@ std::string dccInit()
 
 	//read configuration from wavedcc.conf
 	std::map<std::string, std::string> config;
-	if (fileExists("wavedcc.conf")) config = getConfig("wavedcc.conf");
+	std::string home(std::getenv("HOME"));
+	home += "/.wavedcc/wavedcc.conf";
+	if (fileExists("wavedcc.conf")) {
+		config = getConfig("wavedcc.conf");
+		std::cout << "Configuration from ./wavedcc.conf" << std::endl;
+	}
+	else if (fileExists(home)) {
+		getConfig(home);
+		std::cout << "Configuration from " << home << std::endl;
+	}
+	else std::cout << "No configuration file found." << std::endl;
 
 	//for configuration debug:
-	for(std::map<std::string, std::string>::iterator it = config.begin(); it!= config.end(); ++it)
-		std::cout << it->first << " = " << it->second << std::endl;
+	//for(std::map<std::string, std::string>::iterator it = config.begin(); it!= config.end(); ++it)
+	//	std::cout << it->first << " = " << it->second << std::endl;
 	
 	if (config.find("main1") != config.end()) MAIN1 = atoi(config["main1"].c_str());
 	if (config.find("main2") != config.end()) MAIN2 = atoi(config["main2"].c_str());
