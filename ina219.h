@@ -108,7 +108,7 @@ public:
 	int i2c_write( unsigned char *buf, int len )
 	{
 		int rc = 0;
-		printf("i2c_write - i2c_handle: %d\n", i2c_handle);
+//		printf("i2c_write - i2c_handle: %d\n", i2c_handle);
 
 #ifdef USE_PIGPIOD_IF
 		if ((rc = i2c_write_device(pigpio_id, i2c_handle, (char *) buf, len)) != 0)

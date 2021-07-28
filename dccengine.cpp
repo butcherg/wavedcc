@@ -437,7 +437,7 @@ std::string dccInit()
 	std::string wavelet_mode = "remote (" + host + ")";
 	signal(SIGINT, signal_handler);
 	//ina.configure(pigpio_id);	
-	//ina.configure((const char *) host.c_str(), (const char *) port.c_str());
+	ina.configure((const char *) host.c_str(), (const char *) port.c_str());
 #else
 	int result;
 	result = gpioInitialise();
@@ -451,14 +451,14 @@ std::string dccInit()
 	gpioWaveClear();
 	std::string wavelet_mode = "native";
 	gpioSetSignalFunc(SIGINT, signal_handler);
-	//ina.configure();
+	ina.configure();
 #endif
 
-	//c = new std::thread(&runDCCCurrent);
+	c = new std::thread(&runDCCCurrent);
 
-	std::stringstream result;
-	result << "outgpios: " << MAIN1 << "|" << MAIN2 << std::endl << "mode: " << wavelet_mode << std::endl;
-	return result.str();
+	std::stringstream resultstr;
+	resultstr << "outgpios: " << MAIN1 << "|" << MAIN2 << std::endl << "mode: " << wavelet_mode << std::endl;
+	return resultstr.str();
 }
 
 //global, used to run a single engine with adr/+/-:
