@@ -53,6 +53,11 @@ void pigpio_err(int error)
 	exit(1);
 }
 
+void set_thread_name(std::thread* thread, const char* threadName)
+{
+   auto handle = thread->native_handle();
+   pthread_setname_np(handle,threadName);
+}
 
 
 class CommandQueue
@@ -387,6 +392,11 @@ void runDCC()
 
 void signal_handler(int signum) {
 	std::cout << std::endl << "exiting (signal " << signum << ")..." << std::endl;
+#ifdef USE_PIGPIOD_IF
+	gpio_write(pigpio_id, MAINENABLE, 0);
+#else
+	gpioWrite(MAINENABLE, 0);
+#endif
 	currenting = false;
 	running = false;
 	if (c && c->joinable()) {
@@ -476,6 +486,7 @@ std::string dccInit()
 	millisec = 500.0; //.5 second interval between voltage/current updates, no need to lock before thread start
 	currenting = true;
 	c = new std::thread(&runDCCCurrent);
+	set_thread_name(c, "current");
 
 	std::stringstream resultstr;
 	resultstr << "outgpios: " << MAIN1 << "|" << MAIN2 << std::endl << "mode: " << wavelet_mode << std::endl;
@@ -506,6 +517,7 @@ std::string dccCommand(std::string cmd)
 					if (t == NULL) {
 						running = true;
 						t = new std::thread(&runDCC);
+						set_thread_name(t, "pulsetrain");
 #ifdef USE_PIGPIOD_IF
 						gpio_write(pigpio_id, MAINENABLE, 1);
 #else
@@ -541,6 +553,7 @@ std::string dccCommand(std::string cmd)
 				if (t == NULL) {
 					running = true;
 					t = new std::thread(&runDCC);
+					set_thread_name(t, "pulsetrain");
 #ifdef USE_PIGPIOD_IF
 					gpio_write(pigpio_id, MAINENABLE, 1);
 #else
