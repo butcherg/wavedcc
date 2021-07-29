@@ -45,6 +45,8 @@
 #include "dccpacket.h"
 #include "ina219.h"
 
+#define MILLISEC_INTERVAL = 500.0; //.5 second interval between voltage/current updates; this is in addition to the apx 1.4ms needed to read voltage,current
+
 
 void pigpio_err(int error)
 {
@@ -265,6 +267,9 @@ float highwater_current;
 //millisecond value to sleep the runDCCCurrent thread:
 float millisec;
 
+//quiescent current, collected when <1 PROG> is issued:
+float quiescent;
+
 std::mutex vc;  //use this to guard voltage/current/highwater access
 INA219 ina; //The class for interface with the INA219 through I2C
 
@@ -483,7 +488,7 @@ std::string dccInit()
 	ina.configure();
 #endif
 
-	millisec = 500.0; //.5 second interval between voltage/current updates, no need to lock before thread start
+	millisec = MILLISEC_INTERVAL; //no need to lock before thread start
 	currenting = true;
 	c = new std::thread(&runDCCCurrent);
 	set_thread_name(c, "current");
@@ -534,6 +539,17 @@ std::string dccCommand(std::string cmd)
 				}
 				else {
 					programming = true;
+					
+					//measure the quiescent current draw:
+					millisec = 1.0;
+					float sum = 0.0
+					for (int i = 0; i < 100; i++) {
+						sum += current;
+						usleep(1000);
+					}
+					quiescent = sum / 100.0
+					millisec = 500.0;
+					printf("quiescent: %f\n", quiescent);
 #ifdef USE_PIGPIOD_IF
 					gpio_write(pigpio_id, PROGENABLE, 1);
 #else
@@ -791,13 +807,13 @@ std::string dccCommand(std::string cmd)
 		
 			if (cmdstring.size() == 2) {
 				address = atoi(cmdstring[1].c_str());
-				p =  DCCPacket::makeServiceModeDirectPacket(PROG1, PROG2, 1, address);
+				p =  DCCPacket::makeServiceModeDirectWriteBytePacket(PROG1, PROG2, 1, address);
 				response << "<W " << address  <<">";
 			}
 			else if (cmdstring.size() == 3) {
 				cv = atoi(cmdstring[1].c_str());
 				value = atoi(cmdstring[2].c_str());
-				p =  DCCPacket::makeServiceModeDirectPacket(PROG1, PROG2, cv, value);
+				p =  DCCPacket::makeServiceModeDirectWriteBytePacket(PROG1, PROG2, cv, value);
 				response << "<W " << cv  << " " << value << ">";
 			}
 			else return "Error: malformed command.";
@@ -848,6 +864,44 @@ std::string dccCommand(std::string cmd)
 		else response << "<Error: can't program in ops mode.>";
 
 	}
+	
+	//read CV:
+	//<R CV CALLBACKNUM CALLBACKSUB> e.g., <R 32 0 0>
+	else if (cmdstring[0] == "R") {
+		if (programming) {
+			int address, cv, value, cb, cbsub;
+		
+			DCCPacket r = DCCPacket::makeBaselineResetPacket(PROG1, PROG2);
+			DCCPacket p;
+			if (cmdstring.size() == 4) {
+				cv = atoi(cmdstring[1].c_str());
+				cb = atoi(cmdstring[2].c_str());
+				cbsub = atoi(cmdstring[3].c_str());
+				p =  DCCPacket::makeServiceModeDirectVerifyBytePacket(PROG1, PROG2, cv, value);
+				//response << "<W " << cv  << " " << value << ">";
+
+			}
+			else return "<Error: malformed command.>";
+			
+			//to-do: collect quiescent current in <1 PROG>
+			//set highwater to 0
+			//set millisecond to 1
+			//set val = -1
+			//for i=1 to 255:
+			//	send 3 reset packets
+			//	send 5 verify packets
+			//	compare highwater to quiescent
+			//	send 1 reset packet if highwater > quiescent by 60ma
+			//	if highwater > quiescent by 60ma
+			//		val = i
+			//		break loop
+			//loop
+			//<r cb|cbsub|val>
+			//to-do: set millisecond back to MILLISEC_INTERVAL
+		}
+		else response << "<Error: can't program in ops mode.>";
+	}
+
 
 	//RETURNS: Track power status, Version, Microcontroller type, Motor Shield type, build number, and then any defined turnouts, outputs, or sensors.
 	//Example: <iDCC-EX V-3.0.4 / MEGA / STANDARD_MOTOR_SHIELD G-75ab2ab><H 1 0><H 2 0><H 3 0><H 4 0><Y 52 0><q 53><q 50>

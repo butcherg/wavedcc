@@ -427,7 +427,7 @@ DCCPacket DCCPacket::makeWriteCVToAddressPacket(int pinA, int pinB, int address,
 
 //Service Mode packet makers:
 
-DCCPacket DCCPacket::makeServiceModeDirectPacket(int pinA, int pinB, int CV, char value)
+DCCPacket DCCPacket::makeServiceModeDirectWriteBytePacket(int pinA, int pinB, int CV, char value)
 {
 	DCCPacket p(pinA, pinB);
 	p.resetCK();
@@ -445,6 +445,62 @@ DCCPacket DCCPacket::makeServiceModeDirectPacket(int pinA, int pinB, int CV, cha
 	p.addOne();
 	//11 - Write byte
 	p.addOne();
+	p.addOne();
+	if ((CV & 0b1000000000) >> 9) p.addOne(); else p.addZero();
+	if ((CV & 0b0100000000) >> 8) p.addOne(); else p.addZero();
+	p.accumulateCK();
+	
+	//last 8 bits of CV:
+	p.addDelimiter(0);
+	p.resetBT(); 
+	if ((CV & 0b0010000000) >> 7) p.addOne(); else p.addZero();
+	if ((CV & 0b0001000000) >> 6) p.addOne(); else p.addZero();
+	if ((CV & 0b0000100000) >> 5) p.addOne(); else p.addZero();
+	if ((CV & 0b0000010000) >> 4) p.addOne(); else p.addZero();
+	if ((CV & 0b0000001000) >> 3) p.addOne(); else p.addZero();
+	if ((CV & 0b0000000100) >> 2) p.addOne(); else p.addZero();
+	if ((CV & 0b0000000010) >> 1) p.addOne(); else p.addZero();
+	if ((CV & 0b0000000001)) p.addOne(); else p.addZero();
+	p.accumulateCK();
+	
+	//CV value:
+	p.addDelimiter(0);
+	p.resetBT(); 
+	if ((value & 0b10000000) >> 7) p.addOne(); else p.addZero();
+	if ((value & 0b01000000) >> 6) p.addOne(); else p.addZero();
+	if ((value & 0b00100000) >> 5) p.addOne(); else p.addZero();
+	if ((value & 0b00010000) >> 4) p.addOne(); else p.addZero();
+	if ((value & 0b00001000) >> 3) p.addOne(); else p.addZero();
+	if ((value & 0b00000100) >> 2) p.addOne(); else p.addZero();
+	if ((value & 0b00000010) >> 1) p.addOne(); else p.addZero();
+	if ((value & 0b00000001)) p.addOne(); else p.addZero();
+	p.accumulateCK(); 
+
+	p.addDelimiter(0);
+	p.addCK(); 
+
+	p.addDelimiter(1);
+	return p;
+}
+
+DCCPacket makeServiceModeDirectVerifyBytePacket(int pinA, int pinB, int CV, char value)
+{
+	DCCPacket p(pinA, pinB);
+	p.resetCK();
+	
+	//long preamble:
+	for (unsigned i=1; i<=20; i++) p.addOne();
+
+	//command, first two bits of CV:
+	p.addDelimiter(0);
+	p.resetBT(); 
+	//0111 - Service Mode Direct
+	p.addZero();
+	p.addOne();
+	p.addOne();
+	p.addOne();
+	//01 - Verify byte
+	p.addZero();
 	p.addOne();
 	if ((CV & 0b1000000000) >> 9) p.addOne(); else p.addZero();
 	if ((CV & 0b0100000000) >> 8) p.addOne(); else p.addZero();

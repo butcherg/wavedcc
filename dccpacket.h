@@ -61,7 +61,8 @@ public:
 
 	
 	//Service mode packets:
-	static DCCPacket makeServiceModeDirectPacket(int pinA, int pinB, int CV, char value);
+	static DCCPacket makeServiceModeDirectWriteBytePacket(int pinA, int pinB, int CV, char value);
+	static DCCPacket makeServiceModeDirectVerifyBytePacket(int pinA, int pinB, int CV, char value);
 	static DCCPacket makeWriteCVToAddressPacket(int pinA, int pinB, int address, int CV, char value);
 	
 
