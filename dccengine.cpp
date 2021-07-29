@@ -45,7 +45,7 @@
 #include "dccpacket.h"
 #include "ina219.h"
 
-#define MILLISEC_INTERVAL = 500.0; //.5 second interval between voltage/current updates; this is in addition to the apx 1.4ms needed to read voltage,current
+#define MILLISEC_INTERVAL 500.0; //.5 second interval between voltage/current updates; this is in addition to the apx 1.4ms needed to read voltage,current
 
 
 void pigpio_err(int error)
@@ -542,12 +542,12 @@ std::string dccCommand(std::string cmd)
 					
 					//measure the quiescent current draw:
 					millisec = 1.0;
-					float sum = 0.0
+					float sum = 0.0;
 					for (int i = 0; i < 100; i++) {
 						sum += current;
 						usleep(1000);
 					}
-					quiescent = sum / 100.0
+					quiescent = sum / 100.0;
 					millisec = 500.0;
 					printf("quiescent: %f\n", quiescent);
 #ifdef USE_PIGPIOD_IF
