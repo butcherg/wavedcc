@@ -483,7 +483,7 @@ DCCPacket DCCPacket::makeServiceModeDirectWriteBytePacket(int pinA, int pinB, in
 	return p;
 }
 
-DCCPacket makeServiceModeDirectVerifyBytePacket(int pinA, int pinB, int CV, char value)
+DCCPacket DCCPacket::makeServiceModeDirectVerifyBytePacket(int pinA, int pinB, int CV, char value)
 {
 	DCCPacket p(pinA, pinB);
 	p.resetCK();
