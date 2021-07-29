@@ -243,6 +243,9 @@ Roster roster;
 //flag to control runDCC()
 bool running = false;
 
+//flag to control runDCCCurrent()
+bool currenting = false;
+
 //flag to control programming:
 bool programming = false;
 
@@ -253,6 +256,10 @@ bool steps28 = true;
 float voltage;
 float current;
 float highwater_current;
+
+//millisecond value to sleep the runDCCCurrent thread:
+float millisec;
+
 std::mutex vc;  //use this to guard voltage/current/highwater access
 INA219 ina; //The class for interface with the INA219 through I2C
 
@@ -277,13 +284,13 @@ int pigpio_id;
 //
 void runDCCCurrent()
 {
-	while (true) {
+	while (currenting) {
 		vc.lock();
 		voltage = ina.get_voltage();
 		current = ina.get_current();
 		if (current > highwater_current) highwater_current = current;
 		vc.unlock();
-		usleep(1000*1000); //every millisecond?
+		usleep((int) (1000 * millisec));
 	}
 } 
 
@@ -380,7 +387,19 @@ void runDCC()
 
 void signal_handler(int signum) {
 	std::cout << std::endl << "exiting (signal " << signum << ")..." << std::endl;
-	//i2c_closeout();
+	currenting = false;
+	running = false;
+	if (c && c->joinable()) {
+		c->join();
+		c->~thread();
+		c = NULL;
+	}
+	if (t && t->joinable()) {
+		t->join();
+		t->~thread();
+		t = NULL;
+	}
+	ina.deconfigure();
 #ifdef USE_PIGPIOD_IF
 	pigpio_stop(pigpio_id);
 #else
@@ -436,8 +455,8 @@ std::string dccInit()
 	wave_clear(pigpio_id);
 	std::string wavelet_mode = "remote (" + host + ")";
 	signal(SIGINT, signal_handler);
-	//ina.configure(pigpio_id);	
-	ina.configure((const char *) host.c_str(), (const char *) port.c_str());
+	ina.configure(pigpio_id);	
+	//ina.configure((const char *) host.c_str(), (const char *) port.c_str());
 #else
 	int result;
 	result = gpioInitialise();
@@ -454,6 +473,8 @@ std::string dccInit()
 	ina.configure();
 #endif
 
+	millisec = 500.0; //.5 second interval between voltage/current updates, no need to lock before thread start
+	currenting = true;
 	c = new std::thread(&runDCCCurrent);
 
 	std::stringstream resultstr;
@@ -833,7 +854,10 @@ std::string dccCommand(std::string cmd)
 	
 	//RETURNS: <c "CurrentMAIN" CURRENT C "Milli" "0" MAX_MA "1" TRIP_MA >
 	else if (cmdstring[0] == "c") {
-		response << "<c \"CurrentMAIN " << current << " C Milli 0 2000 1 1800 >";
+		vc.lock();
+		float c = current;
+		vc.unlock();
+		response << "<c \"CurrentMAIN " << c << " C Milli 0 2000 1 1800 >";
 	}
 	
 	//appease JMRI... No turnouts, no output pins, no sensors. 
@@ -846,11 +870,6 @@ std::string dccCommand(std::string cmd)
 		response << "<# 1000d>\n";
 	}
 	
-	//Appease JMRI, no current metering yet
-	else if (cmdstring[0] == "c") {
-		response << "<c CurrentMAIN 0 C Milli 0 2 0 0>\n";
-	}
-
 	else if (cmdstring[0] == "ws") {
 #ifdef USE_PIGPIOD_IF
 		response << "Remote hardware version: " << get_hardware_revision(pigpio_id) << "\n";
