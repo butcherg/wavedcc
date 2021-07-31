@@ -915,6 +915,9 @@ std::string dccCommand(std::string cmd)
 				cb = atoi(cmdstring[2].c_str());
 				cbsub = atoi(cmdstring[3].c_str());
 			}
+			else if (cmdstring.size() == 2) {
+				cv = atoi(cmdstring[1].c_str());
+			}
 			else return "<Error: malformed command.>";
 
 			DCCPacket r = DCCPacket::makeBaselineResetPacket(PROG1, PROG2);
@@ -1021,7 +1024,10 @@ std::string dccCommand(std::string cmd)
 			vc.lock();
 			millisec = MILLISEC_INTERVAL;  //put the current monitor interval back to normal
 			vc.unlock();
-			response << "<R " << cb << "|" << cbsub << "|" << val << ">";
+			if (cmdstring.size() == 4) 
+				response << "<R " << cb << "|" << cbsub << "|" << val << ">";
+			else if (cmdstring.size() == 2)
+				 response << "<R CV" << cv << "=" << val << ">";
 
 		}
 		else response << "<Error: can't program in ops mode.>";
@@ -1033,9 +1039,9 @@ std::string dccCommand(std::string cmd)
 	//Example: <iDCC-EX V-3.0.4 / MEGA / STANDARD_MOTOR_SHIELD G-75ab2ab><H 1 0><H 2 0><H 3 0><H 4 0><Y 52 0><q 53><q 50>
 	else if (cmdstring[0] == "s") {
 		if (running)
-			response << "<p1 MAIN>";
+			response << "<p1 MAIN><p0 PROG>";
 		else if (programming)
-			response << "<p1 PROG>";
+			response << "<p1 PROG><p0 MAIN>";
 		else
 			response << "<p0>";
 		//response << "<iwavedcc dev / RPi 3 / L298n>\n";
