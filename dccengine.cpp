@@ -869,7 +869,7 @@ std::string dccCommand(std::string cmd)
 				};
 				gpio_write(pigpio_id, PROGENABLE, 1);
 				wave_chain(pigpio_id, pchain , 14);
-				while (wave_tx_busy(pigpio_id)) time_sleep(0.1);
+				while (wave_tx_busy(pigpio_id)) usleep(1000);
 				gpio_write(pigpio_id, PROGENABLE, 0);
 				wave_delete(pigpio_id, rwave);
 				wave_delete(pigpio_id, pwave);
@@ -890,7 +890,7 @@ std::string dccCommand(std::string cmd)
 				};
 				gpioWrite(PROGENABLE, 1);
 				gpioWaveChain(pchain, 14);
-				while (gpioWaveTxBusy()) time_sleep(0.1);
+				while (gpioWaveTxBusy()) usleep(1000);
 				gpioWrite(PROGENABLE, 0);
 				gpioWaveDelete(rwave);
 				gpioWaveDelete(pwave);
@@ -928,14 +928,14 @@ std::string dccCommand(std::string cmd)
 			millisec = 1;  //throttle up the current monitor to support the ack resolution
 			vc.unlock();
 			
-			float quiescent = 800.0; //highwater_current;
-			float baseline = 0.0;    //use this later for some sort of calculated highwater...  ??
+			float quiescent = 800.0; //this will be modified in a few lines with a calculated value...
 			
 #ifdef USE_PIGPIOD_IF
 			wave_clear(pigpio_id);
 			wave_add_generic(pigpio_id, r.getPulseTrain().size(), r.getPulseTrain().data());
 			char rwave = wave_create(pigpio_id);
-
+			std::vector<float> currents; //collect current measurements during power-up sequence
+			
 			//S-9.2.3 power-up sequence, 20 valid packets to stabilize the decoder:
 			char schain[20] = {
 				rwave, rwave, rwave, rwave, rwave, 
@@ -943,18 +943,26 @@ std::string dccCommand(std::string cmd)
 				rwave, rwave, rwave, rwave, rwave,
 				rwave, rwave, rwave, rwave, rwave
 			};
-			
+
 			gpio_write(pigpio_id, PROGENABLE, 1);
 			wave_chain(pigpio_id, schain, 20);
-			while (wave_tx_busy(pigpio_id)) { if (baseline < current) baseline = current; time_sleep(0.001); }
+			while (wave_tx_busy(pigpio_id)) { float c = current; currents.push_back(c); usleep(1000); }
 			gpio_write(pigpio_id, PROGENABLE, 0);
 			
-			//walk through the values, stop when one renders an ack count >= 1:
+			//calculate quiescent from the last 10 power-on current measurements:
+			float q = 0.0;
+			for (int i=currents.size()-10; i<currents.size(); i++) 
+				if (currents[i] > q) q = currents[i];
+			quiescent = q * 1.3;
+			printf("quiescent: %04.2fma\n",quiescent);
+
+			
+			//walk through the values, stop when one renders a power count >= 5:
 			for (int i= 1; i <= 255; i++) {
 				DCCPacket p = DCCPacket::makeServiceModeDirectVerifyBytePacket(PROG1, PROG2, cv, (char) i); 
 				wave_add_generic(pigpio_id, p.getPulseTrain().size(), p.getPulseTrain().data());
 				char pwave = wave_create(pigpio_id);
-				char pchain[14] = {
+				char pchain[13] = {
 					//S-9.2.3: 3 resets:
 					rwave, rwave, rwave, rwave, //rwave, rwave,
 					//S-9.2.3: 5 writes:
@@ -964,11 +972,11 @@ std::string dccCommand(std::string cmd)
 				};
 				pwrcount = 0;
 				gpio_write(pigpio_id, PROGENABLE, 1);
-				wave_chain(pigpio_id, pchain, 14);
+				wave_chain(pigpio_id, pchain, 13);
 				while (wave_tx_busy(pigpio_id)) { if (current > quiescent) pwrcount++; usleep(1000); }
 				gpio_write(pigpio_id, PROGENABLE, 0);
 				wave_delete(pigpio_id, pwave);
-				
+
 				if (pwrcount >= 5) {
 					val = i;
 					break;
@@ -980,6 +988,7 @@ std::string dccCommand(std::string cmd)
 			gpioWaveClear();
 			gpioWaveAddGeneric(r.getPulseTrain().size(), r.getPulseTrain().data());
 			char rwave = gpioWaveCreate();
+			std::vector<float> currents; //collect current measurements during power-up sequence
 			
 			//S-9.2.3 power-up sequence, 20 valid packets to stabilize the decoder:
 			char schain[20] = {
@@ -991,15 +1000,26 @@ std::string dccCommand(std::string cmd)
 			
 			gpioWrite(PROGENABLE, 1);
 			gpioWaveChain(schain, 20);
-			while (gpioWaveTxBusy()) { if (baseline < current) baseline = current; time_sleep(0.001); }
+			while (gpioWaveTxBusy()) { float c = current; currents.push_back(c); usleep(1000); }
 			gpioWrite(PROGENABLE, 0);
+			
+			//calculate quiescent from the last 10 power-on current measurements:
+			float q = 0.0;
+			for (int i=currents.size()-10; i<currents.size(); i++) 
+				if (currents[i] > q) q = currents[i];
+			quiescent = q * 1.3;
+			printf("quiescent: %04.2fma\n",quiescent);
+			
+			//for (int i=0; i<currents.size(); i++)
+			//	printf("%04.2f, ",currents[i]);
+			//printf("\n");
 
-			//walk through the values, stop when one renders an ack count >= 1:
+			//walk through the values, stop when one renders a power count >= 5:
 			for (int i= 1; i <= 255; i++) {
 				DCCPacket p = DCCPacket::makeServiceModeDirectVerifyBytePacket(PROG1, PROG2, cv, (char) i); 
 				gpioWaveAddGeneric(p.getPulseTrain().size(), p.getPulseTrain().data());
 				char pwave = gpioWaveCreate();
-				char pchain[14] = {
+				char pchain[13] = {
 					//S-9.2.3: 3 resets:
 					rwave, rwave, rwave, rwave, //rwave, rwave,
 					//S-9.2.3: 5 writes:
@@ -1009,11 +1029,11 @@ std::string dccCommand(std::string cmd)
 				};
 				
 				gpioWrite(PROGENABLE, 1);
-				gpioWaveChain(pchain, 14);
+				gpioWaveChain(pchain, 13);
 				while (gpioWaveTxBusy()) { if (current > quiescent) pwrcount++; usleep(1000); }
 				gpioWrite(PROGENABLE, 0);
 				gpioWaveDelete(pwave);
-				
+
 				if (pwrcount >= 5) {
 					val = i;
 					break;
@@ -1048,6 +1068,18 @@ std::string dccCommand(std::string cmd)
 
 		//until JMRI gets a wavedcc status regex:
 		response << "<iDCC-EX V-0.0.0 / MEGA / STANDARD_MOTOR_SHIELD G-75ab2ab>\n";
+
+	}
+	
+	//wavedcc-unique, just sends power status.
+	else if (cmdstring[0] == "sp") {
+		if (running)
+			response << "<p1 MAIN><p0 PROG>";
+		else if (programming)
+			response << "<p1 PROG><p0 MAIN>";
+		else
+			response << "<p0 MAIN><p0 PROG>";
+		
 
 	}
 	
@@ -1098,13 +1130,13 @@ std::string dccCommand(std::string cmd)
 			wave_add_generic(pigpio_id, testpacket.getPulseTrain().size(), testpacket.getPulseTrain().data());
 			int wid =  wave_create(pigpio_id);
 			wave_send_using_mode(pigpio_id, wid, PI_WAVE_MODE_ONE_SHOT);
-			while (wave_tx_at(pigpio_id) == wid) time_sleep(0.01);
+			while (wave_tx_at(pigpio_id) == wid) usleep(1000);
 			wave_delete(pigpio_id,  wid);
 #else
 			gpioWaveAddGeneric(testpacket.getPulseTrain().size(), testpacket.getPulseTrain().data());
 			int wid = gpioWaveCreate();
 			gpioWaveTxSend(wid, PI_WAVE_MODE_ONE_SHOT);
-			while(gpioWaveTxAt() == wid) time_sleep(0.1);
+			while(gpioWaveTxAt() == wid) usleep(1000);
 			gpioWaveDelete(wid);
 #endif	
 			response << "Test packet sent: " << testpacket.getPulseString() << "  ones: " << testpacket.getOnes() << "  zeros: " << testpacket.getZeros();
