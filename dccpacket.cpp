@@ -446,6 +446,8 @@ DCCPacket DCCPacket::makeServiceModeDirectWriteBytePacket(int pinA, int pinB, in
 	//11 - Write byte
 	p.addOne();
 	p.addOne();
+	//CV address = CV# - 1:
+	CV--;
 	if ((CV & 0b1000000000) >> 9) p.addOne(); else p.addZero();
 	if ((CV & 0b0100000000) >> 8) p.addOne(); else p.addZero();
 	p.accumulateCK();
@@ -502,6 +504,8 @@ DCCPacket DCCPacket::makeServiceModeDirectVerifyBytePacket(int pinA, int pinB, i
 	//01 - Verify byte
 	p.addZero();
 	p.addOne();
+	//CV address = CV# - 1:
+	CV--;
 	if ((CV & 0b1000000000) >> 9) p.addOne(); else p.addZero();
 	if ((CV & 0b0100000000) >> 8) p.addOne(); else p.addZero();
 	p.accumulateCK();

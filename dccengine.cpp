@@ -30,6 +30,7 @@
 #include <signal.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/time.h>
 
 #include <string>
 #include <iostream> 
@@ -45,7 +46,38 @@
 #include "dccpacket.h"
 #include "ina219.h"
 
-#define MILLISEC_INTERVAL 500.0; //.5 second interval between voltage/current updates; this is in addition to the apx 1.4ms needed to read voltage,current
+#define MILLISEC_INTERVAL 50.0 //.5 second interval between voltage/current updates; this is in addition to the apx 1.4ms needed to read voltage,current
+
+std::stringstream logstream;
+bool logging = false;
+
+long timestamp()
+{
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return tv.tv_usec / 1000000 + tv.tv_sec;
+}
+
+	void writelog() 
+	{
+		std::ofstream outfile;
+		outfile.open("log.txt");
+		outfile << "log written at "<< timestamp() << std::endl;
+		outfile << logstream.str();
+		outfile.close();
+	}
+	
+	void clearlog() {
+		logstream.str(std::string());
+	}
+	
+	void startlog() {
+		logging = true;
+	}
+	
+	void stoplog() {
+		logging = false;
+	}
 
 
 void pigpio_err(int error)
@@ -262,13 +294,9 @@ bool steps28 = true;
 //current and voltage variables, populated by runDCCCurrent:
 float voltage;
 float current;
-float highwater_current;
 
 //millisecond value to sleep the runDCCCurrent thread:
 float millisec;
-
-//quiescent current, collected when <1 PROG> is issued:
-float quiescent;
 
 std::mutex vc;  //use this to guard voltage/current/highwater access
 INA219 ina; //The class for interface with the INA219 through I2C
@@ -298,7 +326,6 @@ void runDCCCurrent()
 		vc.lock();
 		voltage = ina.get_voltage();
 		current = ina.get_current();
-		if (current > highwater_current) highwater_current = current;
 		vc.unlock();
 		usleep((int) (1000 * millisec));
 	}
@@ -399,8 +426,10 @@ void signal_handler(int signum) {
 	std::cout << std::endl << "exiting (signal " << signum << ")..." << std::endl;
 #ifdef USE_PIGPIOD_IF
 	gpio_write(pigpio_id, MAINENABLE, 0);
+	gpio_write(pigpio_id, PROGENABLE, 0);
 #else
 	gpioWrite(MAINENABLE, 0);
+	gpioWrite(PROGENABLE, 0);
 #endif
 	currenting = false;
 	running = false;
@@ -428,6 +457,11 @@ std::string dccInit()
 	MAIN1=17;
 	MAIN2=27;
 	MAINENABLE=22;
+	
+	//temporary, for testing:
+	PROG1=17;
+	PROG2=27;
+	PROGENABLE=22;
 
 	//read configuration from wavedcc.conf
 	std::map<std::string, std::string> config;
@@ -467,6 +501,8 @@ std::string dccInit()
 	set_mode(pigpio_id, PROG1, PI_OUTPUT);
 	set_mode(pigpio_id, PROG2, PI_OUTPUT);
 	set_mode(pigpio_id, PROGENABLE, PI_OUTPUT);
+	gpio_write(pigpio_id, MAINENABLE, 0);
+	gpio_write(pigpio_id, PROGENABLE, 0);
 	wave_clear(pigpio_id);
 	std::string wavelet_mode = "remote (" + host + ")";
 	signal(SIGINT, signal_handler);
@@ -482,6 +518,8 @@ std::string dccInit()
 	gpioSetMode(PROG1, PI_OUTPUT);
 	gpioSetMode(PROG2, PI_OUTPUT);
 	gpioSetMode(PROGENABLE, PI_OUTPUT);
+	gpioWrite(MAINENABLE, 0);
+	gpioWrite(PROGENABLE, 0);
 	gpioWaveClear();
 	std::string wavelet_mode = "native";
 	gpioSetSignalFunc(SIGINT, signal_handler);
@@ -524,8 +562,10 @@ std::string dccCommand(std::string cmd)
 						t = new std::thread(&runDCC);
 						set_thread_name(t, "pulsetrain");
 #ifdef USE_PIGPIOD_IF
+						gpio_write(pigpio_id, PROGENABLE, 0);
 						gpio_write(pigpio_id, MAINENABLE, 1);
 #else
+						gpioWrite(PROGENABLE, 0);
 						gpioWrite(MAINENABLE, 1);
 #endif
 						response << "<p1 MAIN>";
@@ -540,20 +580,12 @@ std::string dccCommand(std::string cmd)
 				else {
 					programming = true;
 					
-					//measure the quiescent current draw:
-					millisec = 1.0;
-					float sum = 0.0;
-					for (int i = 0; i < 100; i++) {
-						sum += current;
-						usleep(1000);
-					}
-					quiescent = sum / 100.0;
-					millisec = 500.0;
-					printf("quiescent: %f\n", quiescent);
 #ifdef USE_PIGPIOD_IF
-					gpio_write(pigpio_id, PROGENABLE, 1);
+					wave_clear(pigpio_id);
+					gpio_write(pigpio_id, MAINENABLE, 0);
 #else
-					gpioWrite(PROGENABLE, 1);
+					gpioWaveClear();
+					gpioWrite(MAINENABLE, 0);
 #endif
 					response << "<p1 PROG>";
 					
@@ -561,7 +593,7 @@ std::string dccCommand(std::string cmd)
 			}
 			else response << "<Error: invalid mode.>";
 		}
-		else if (cmdstring.size() == 1) {
+		else if (cmdstring.size() == 1) {  // <1> just enables MAIN
 			if (programming) {
 				response << "<Error: programming mode active.>";
 			}
@@ -571,8 +603,10 @@ std::string dccCommand(std::string cmd)
 					t = new std::thread(&runDCC);
 					set_thread_name(t, "pulsetrain");
 #ifdef USE_PIGPIOD_IF
+					gpio_write(pigpio_id, PROGENABLE, 0);
 					gpio_write(pigpio_id, MAINENABLE, 1);
 #else
+					gpioWrite(PROGENABLE, 0);
 					gpioWrite(MAINENABLE, 1);
 #endif
 					response << "<p1 MAIN>";
@@ -833,8 +867,10 @@ std::string dccCommand(std::string cmd)
 					//S-9.2.3: 6 resets:
 					rwave, rwave, rwave, rwave, rwave, rwave
 				};
+				gpio_write(pigpio_id, PROGENABLE, 1);
 				wave_chain(pigpio_id, pchain , 14);
 				while (wave_tx_busy(pigpio_id)) time_sleep(0.1);
+				gpio_write(pigpio_id, PROGENABLE, 0);
 				wave_delete(pigpio_id, rwave);
 				wave_delete(pigpio_id, pwave);
 				
@@ -852,8 +888,10 @@ std::string dccCommand(std::string cmd)
 					//S-9.2.3: 6 resets:
 					rwave, rwave, rwave, rwave, rwave, rwave
 				};
+				gpioWrite(PROGENABLE, 1);
 				gpioWaveChain(pchain, 14);
 				while (gpioWaveTxBusy()) time_sleep(0.1);
+				gpioWrite(PROGENABLE, 0);
 				gpioWaveDelete(rwave);
 				gpioWaveDelete(pwave);
 #endif
@@ -869,38 +907,126 @@ std::string dccCommand(std::string cmd)
 	//<R CV CALLBACKNUM CALLBACKSUB> e.g., <R 32 0 0>
 	else if (cmdstring[0] == "R") {
 		if (programming) {
-			int address, cv, value, cb, cbsub;
-		
-			DCCPacket r = DCCPacket::makeBaselineResetPacket(PROG1, PROG2);
-			DCCPacket p;
+			int cv, cb, cbsub;
+			int pwrcount;
+			
 			if (cmdstring.size() == 4) {
 				cv = atoi(cmdstring[1].c_str());
 				cb = atoi(cmdstring[2].c_str());
 				cbsub = atoi(cmdstring[3].c_str());
-				p =  DCCPacket::makeServiceModeDirectVerifyBytePacket(PROG1, PROG2, cv, value);
-				//response << "<W " << cv  << " " << value << ">";
-
 			}
 			else return "<Error: malformed command.>";
+
+			DCCPacket r = DCCPacket::makeBaselineResetPacket(PROG1, PROG2);
+			DCCPacket p;
 			
-			//to-do: collect quiescent current in <1 PROG>
-			//set highwater to 0
-			//set millisecond to 1
-			//set val = -1
-			//for i=1 to 255:
-			//	send 3 reset packets
-			//	send 5 verify packets
-			//	compare highwater to quiescent
-			//	send 1 reset packet if highwater > quiescent by 60ma
-			//	if highwater > quiescent by 60ma
-			//		val = i
-			//		break loop
-			//loop
-			//<r cb|cbsub|val>
-			//to-do: set millisecond back to MILLISEC_INTERVAL
+			int val = -1;  //error, if it's not populated below
+			vc.lock();
+			millisec = 1;  //throttle up the current monitor to support the ack resolution
+			vc.unlock();
+			
+			float quiescent = 800.0; //highwater_current;
+			float baseline = 0.0;    //use this later for some sort of calculated highwater...  ??
+			
+#ifdef USE_PIGPIOD_IF
+			wave_clear(pigpio_id);
+			wave_add_generic(pigpio_id, r.getPulseTrain().size(), r.getPulseTrain().data());
+			char rwave = wave_create(pigpio_id);
+
+			//S-9.2.3 power-up sequence, 20 valid packets to stabilize the decoder:
+			char schain[20] = {
+				rwave, rwave, rwave, rwave, rwave, 
+				rwave, rwave, rwave, rwave, rwave,
+				rwave, rwave, rwave, rwave, rwave,
+				rwave, rwave, rwave, rwave, rwave
+			};
+			
+			gpio_write(pigpio_id, PROGENABLE, 1);
+			wave_chain(pigpio_id, schain, 20);
+			while (wave_tx_busy(pigpio_id)) { if (baseline < current) baseline = current; time_sleep(0.001); }
+			gpio_write(pigpio_id, PROGENABLE, 0);
+			
+			//walk through the values, stop when one renders an ack count >= 1:
+			for (int i= 1; i <= 255; i++) {
+				DCCPacket p = DCCPacket::makeServiceModeDirectVerifyBytePacket(PROG1, PROG2, cv, (char) i); 
+				wave_add_generic(pigpio_id, p.getPulseTrain().size(), p.getPulseTrain().data());
+				char pwave = wave_create(pigpio_id);
+				char pchain[14] = {
+					//S-9.2.3: 3 resets:
+					rwave, rwave, rwave, rwave, //rwave, rwave,
+					//S-9.2.3: 5 writes:
+					pwave, pwave, pwave, pwave, pwave,
+					//resets to cover ack period, if present:
+					rwave, rwave, rwave, rwave //, rwave, rwave,
+				};
+				pwrcount = 0;
+				gpio_write(pigpio_id, PROGENABLE, 1);
+				wave_chain(pigpio_id, pchain, 14);
+				while (wave_tx_busy(pigpio_id)) { if (current > quiescent) pwrcount++; usleep(1000); }
+				gpio_write(pigpio_id, PROGENABLE, 0);
+				wave_delete(pigpio_id, pwave);
+				
+				if (pwrcount >= 5) {
+					val = i;
+					break;
+				}
+
+			}	
+			wave_delete(pigpio_id, rwave);
+#else
+			gpioWaveClear();
+			gpioWaveAddGeneric(r.getPulseTrain().size(), r.getPulseTrain().data());
+			char rwave = gpioWaveCreate();
+			
+			//S-9.2.3 power-up sequence, 20 valid packets to stabilize the decoder:
+			char schain[20] = {
+				rwave, rwave, rwave, rwave, rwave, 
+				rwave, rwave, rwave, rwave, rwave,
+				rwave, rwave, rwave, rwave, rwave,
+				rwave, rwave, rwave, rwave, rwave
+			};
+			
+			gpioWrite(PROGENABLE, 1);
+			gpioWaveChain(schain, 20);
+			while (gpioWaveTxBusy()) { if (baseline < current) baseline = current; time_sleep(0.001); }
+			gpioWrite(PROGENABLE, 0);
+
+			//walk through the values, stop when one renders an ack count >= 1:
+			for (int i= 1; i <= 255; i++) {
+				DCCPacket p = DCCPacket::makeServiceModeDirectVerifyBytePacket(PROG1, PROG2, cv, (char) i); 
+				gpioWaveAddGeneric(p.getPulseTrain().size(), p.getPulseTrain().data());
+				char pwave = gpioWaveCreate();
+				char pchain[14] = {
+					//S-9.2.3: 3 resets:
+					rwave, rwave, rwave, rwave, //rwave, rwave,
+					//S-9.2.3: 5 writes:
+					pwave, pwave, pwave, pwave, pwave,
+					//resets to cover ack period, if present:
+					rwave, rwave, rwave, rwave //, rwave, rwave,
+				};
+				
+				gpioWrite(PROGENABLE, 1);
+				gpioWaveChain(pchain, 14);
+				while (gpioWaveTxBusy()) { if (current > quiescent) pwrcount++; usleep(1000); }
+				gpioWrite(PROGENABLE, 0);
+				gpioWaveDelete(pwave);
+				
+				if (pwrcount >= 5) {
+					val = i;
+					break;
+				}
+			}	
+			gpioWaveDelete(rwave);
+#endif
+			vc.lock();
+			millisec = MILLISEC_INTERVAL;  //put the current monitor interval back to normal
+			vc.unlock();
+			response << "<R " << cb << "|" << cbsub << "|" << val << ">";
+
 		}
 		else response << "<Error: can't program in ops mode.>";
 	}
+
 
 
 	//RETURNS: Track power status, Version, Microcontroller type, Motor Shield type, build number, and then any defined turnouts, outputs, or sensors.
