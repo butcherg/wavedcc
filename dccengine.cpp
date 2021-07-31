@@ -537,8 +537,8 @@ std::string dccInit()
 }
 
 //global, used to run a single engine with adr/+/-:
-int address=0, speed=0, direction=1;
-bool headlight=false;
+//int address=0, speed=0, direction=1;
+bool headlight=true;
 
 std::string dccCommand(std::string cmd)
 {
@@ -1025,9 +1025,9 @@ std::string dccCommand(std::string cmd)
 			millisec = MILLISEC_INTERVAL;  //put the current monitor interval back to normal
 			vc.unlock();
 			if (cmdstring.size() == 4) 
-				response << "<R " << cb << "|" << cbsub << "|" << val << ">";
+				response << "<r " << cb << "|" << cbsub << "|" << val << ">";
 			else if (cmdstring.size() == 2)
-				 response << "<R CV" << cv << "=" << val << ">";
+				 response << "<r CV" << cv << "=" << val << ">";
 
 		}
 		else response << "<Error: can't program in ops mode.>";
