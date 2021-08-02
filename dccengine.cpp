@@ -46,7 +46,7 @@
 #include "dccpacket.h"
 #include "ina219.h"
 
-#define MILLISEC_INTERVAL 50.0 //.5 second interval between voltage/current updates; this is in addition to the apx 1.4ms needed to read voltage,current
+#define MILLISEC_INTERVAL 500.0 //.01 second interval between voltage/current updates; this is in addition to the apx 1.4ms needed to read voltage,current
 
 std::stringstream logstream;
 bool logging = false;
@@ -58,26 +58,26 @@ long timestamp()
 	return tv.tv_usec / 1000000 + tv.tv_sec;
 }
 
-	void writelog() 
-	{
-		std::ofstream outfile;
-		outfile.open("log.txt");
-		outfile << "log written at "<< timestamp() << std::endl;
-		outfile << logstream.str();
-		outfile.close();
-	}
+void writelog() 
+{
+	std::ofstream outfile;
+	outfile.open("log.txt");
+	outfile << "log written at "<< timestamp() << std::endl;
+	outfile << logstream.str();
+	outfile.close();
+}
 	
-	void clearlog() {
-		logstream.str(std::string());
-	}
+void clearlog() {
+	logstream.str(std::string());
+}
 	
-	void startlog() {
-		logging = true;
-	}
+void startlog() {
+	logging = true;
+}
 	
-	void stoplog() {
-		logging = false;
-	}
+void stoplog() {
+	logging = false;
+}
 
 
 void pigpio_err(int error)
@@ -305,6 +305,15 @@ INA219 ina; //The class for interface with the INA219 through I2C
 int MAIN1, MAIN2, MAINENABLE;
 int PROG1, PROG2, PROGENABLE;
 
+//variables to control CV reading behavior:
+int sample_count = 10; //number of samples from the tail of the current measurment vector to use in determining quiescent
+float quiescent_margin = 1.3 ; //number by which to scale measured quiescent
+int power_count = 4; // number of current measurements > quiescent to count in determining an ack
+
+//overload threshold in milliamps:
+float overload_threshold = 3.0;
+bool overload_trip = false;
+
 //for runDCC() engine and runDCCCurrent() current monitoring threads:
 std::thread *t = NULL;
 std::thread *c = NULL;
@@ -322,11 +331,30 @@ int pigpio_id;
 //
 void runDCCCurrent()
 {
+	int overload_count = 0;
 	while (currenting) {
 		vc.lock();
 		voltage = ina.get_voltage();
 		current = ina.get_current();
 		vc.unlock();
+		if (!overload_trip) {
+			if (current > overload_threshold) {
+				overload_count++;
+				if (overload_count >=3) {
+#ifdef USE_PIGPIOD_IF
+					gpio_write(pigpio_id, MAINENABLE, 0);
+					gpio_write(pigpio_id, PROGENABLE, 0);
+#else
+					gpioWrite(MAINENABLE, 0);
+					gpioWrite(PROGENABLE, 0);
+#endif
+					overload_trip = true;
+					programming = false;
+					running = false;
+				}
+			}
+			else overload_count = 0;
+		}
 		usleep((int) (1000 * millisec));
 	}
 } 
@@ -393,7 +421,7 @@ void runDCC()
 		gpioWaveTxSend(nextWid, PI_WAVE_MODE_ONE_SHOT_SYNC);
 
 		int i = 0;
-		while (gpioWaveTxAt() == wid) {  nanosleep(&d, &d); i++; } // { time_sleep(0.003); i++; }
+		while (gpioWaveTxAt() == wid) {  nanosleep(&d, &d); i++; } 
 		//printf("iterations: %d\n", i);
 
 		gpioWaveDelete(wid);
@@ -488,6 +516,12 @@ std::string dccInit()
 	if (config.find("prog2") != config.end()) MAIN2 = atoi(config["prog2"].c_str());
 	if (config.find("progenable") != config.end()) MAINENABLE = atoi(config["progenable"].c_str());
 
+	if (config.find("samplecount") != config.end()) sample_count = atoi(config["samplecount"].c_str());
+	if (config.find("quiescentmargin") != config.end()) quiescent_margin = atof(config["quiescentmargin"].c_str());
+	if (config.find("powercount") != config.end()) power_count = atoi(config["powercount"].c_str());
+	
+	if (config.find("overloadthreshold") != config.end()) overload_threshold = atof(config["overloadthreshold"].c_str());
+
 #ifdef USE_PIGPIOD_IF
 	std::string host = "localhost";
 	std::string port = "8888";
@@ -561,6 +595,9 @@ std::string dccCommand(std::string cmd)
 						running = true;
 						t = new std::thread(&runDCC);
 						set_thread_name(t, "pulsetrain");
+						vc.lock();
+						millisec = 5;
+						vc.unlock();
 #ifdef USE_PIGPIOD_IF
 						gpio_write(pigpio_id, PROGENABLE, 0);
 						gpio_write(pigpio_id, MAINENABLE, 1);
@@ -602,6 +639,9 @@ std::string dccCommand(std::string cmd)
 					running = true;
 					t = new std::thread(&runDCC);
 					set_thread_name(t, "pulsetrain");
+					vc.lock();
+					millisec = 5;
+					vc.unlock();
 #ifdef USE_PIGPIOD_IF
 					gpio_write(pigpio_id, PROGENABLE, 0);
 					gpio_write(pigpio_id, MAINENABLE, 1);
@@ -632,6 +672,9 @@ std::string dccCommand(std::string cmd)
 #else
 					gpioWrite(MAINENABLE, 0);
 #endif
+					vc.lock();
+					millisec = 5;
+					vc.unlock();
 					if (t && t->joinable()) {
 						t->join();
 						t->~thread();
@@ -908,7 +951,6 @@ std::string dccCommand(std::string cmd)
 	else if (cmdstring[0] == "R") {
 		if (programming) {
 			int cv, cb, cbsub;
-			int pwrcount;
 			
 			if (cmdstring.size() == 4) {
 				cv = atoi(cmdstring[1].c_str());
@@ -930,6 +972,8 @@ std::string dccCommand(std::string cmd)
 			
 			float quiescent = 800.0; //this will be modified in a few lines with a calculated value...
 			
+			printf("reading CV%d... ", cv); fflush(stdout);
+			
 #ifdef USE_PIGPIOD_IF
 			wave_clear(pigpio_id);
 			wave_add_generic(pigpio_id, r.getPulseTrain().size(), r.getPulseTrain().data());
@@ -946,15 +990,14 @@ std::string dccCommand(std::string cmd)
 
 			gpio_write(pigpio_id, PROGENABLE, 1);
 			wave_chain(pigpio_id, schain, 20);
-			while (wave_tx_busy(pigpio_id)) { float c = current; currents.push_back(c); usleep(1000); }
+			while (wave_tx_busy(pigpio_id)) { currents.push_back(current); usleep(1000); }
 			gpio_write(pigpio_id, PROGENABLE, 0);
 			
 			//calculate quiescent from the last 10 power-on current measurements:
 			float q = 0.0;
-			for (int i=currents.size()-10; i<currents.size(); i++) 
+			for (int i=currents.size()-sample_count; i<currents.size(); i++) 
 				if (currents[i] > q) q = currents[i];
-			quiescent = q * 1.3;
-			printf("quiescent: %04.2fma\n",quiescent);
+			quiescent = q * quiescent_margin;
 
 			
 			//walk through the values, stop when one renders a power count >= 5:
@@ -970,19 +1013,27 @@ std::string dccCommand(std::string cmd)
 					//resets to cover ack period, if present:
 					rwave, rwave, rwave, rwave //, rwave, rwave,
 				};
-				pwrcount = 0;
+				
+				float max_current = 0.0;
+				int pwrcount = 0;
 				gpio_write(pigpio_id, PROGENABLE, 1);
 				wave_chain(pigpio_id, pchain, 13);
-				while (wave_tx_busy(pigpio_id)) { if (current > quiescent) pwrcount++; usleep(1000); }
+				while (wave_tx_busy(pigpio_id)) { 
+					float c = current;
+					if (c > quiescent) pwrcount++; 
+					if (c > max_current) max_current = c;
+					usleep(1000); 
+				}
 				gpio_write(pigpio_id, PROGENABLE, 0);
 				wave_delete(pigpio_id, pwave);
 
-				if (pwrcount >= 5) {
+				if (pwrcount >= power_count) {
+					printf("%d. quiescent: %04.2fma  pwrcount: %d (%d) maxcurrent: %04.2f\n", i, quiescent, pwrcount, power_count, max_current); fflush(stdout);
 					val = i;
 					break;
 				}
 
-			}	
+			}
 			wave_delete(pigpio_id, rwave);
 #else
 			gpioWaveClear();
@@ -1000,15 +1051,14 @@ std::string dccCommand(std::string cmd)
 			
 			gpioWrite(PROGENABLE, 1);
 			gpioWaveChain(schain, 20);
-			while (gpioWaveTxBusy()) { float c = current; currents.push_back(c); usleep(1000); }
+			while (gpioWaveTxBusy()) { currents.push_back(current); usleep(1000); }
 			gpioWrite(PROGENABLE, 0);
 			
 			//calculate quiescent from the last 10 power-on current measurements:
 			float q = 0.0;
-			for (int i=currents.size()-10; i<currents.size(); i++) 
+			for (int i=currents.size()-sample_count; i<currents.size(); i++) 
 				if (currents[i] > q) q = currents[i];
-			quiescent = q * 1.3;
-			printf("quiescent: %04.2fma\n",quiescent);
+			quiescent = q * quiescent_margin;
 			
 			//for (int i=0; i<currents.size(); i++)
 			//	printf("%04.2f, ",currents[i]);
@@ -1028,13 +1078,21 @@ std::string dccCommand(std::string cmd)
 					rwave, rwave, rwave, rwave //, rwave, rwave,
 				};
 				
+				float max_current = 0.0;
+				int pwrcount = 0;
 				gpioWrite(PROGENABLE, 1);
 				gpioWaveChain(pchain, 13);
-				while (gpioWaveTxBusy()) { if (current > quiescent) pwrcount++; usleep(1000); }
+				while (gpioWaveTxBusy()) { 
+					float c = current;
+					if (c > quiescent) pwrcount++; 
+					if (c > max_current) max_current = c;
+					usleep(1000); 
+				}
 				gpioWrite(PROGENABLE, 0);
 				gpioWaveDelete(pwave);
 
-				if (pwrcount >= 5) {
+				if (pwrcount >= power_count) {
+					printf("%d. quiescent: %04.2fma  pwrcount: %d (%d) maxcurrent: %04.2f\n", i, quiescent, pwrcount, power_count, max_current); fflush(stdout);
 					val = i;
 					break;
 				}
@@ -1088,7 +1146,10 @@ std::string dccCommand(std::string cmd)
 		vc.lock();
 		float c = current;
 		vc.unlock();
-		response << "<c \"CurrentMAIN " << c << " C Milli 0 2000 1 1800 >";
+		if (overload_trip)
+			response << "<c \"CurrentMAIN " << c << " C Milli 0 2000 1 1800 2 OVERLOAD >";
+		else
+			response << "<c \"CurrentMAIN " << c << " C Milli 0 2000 1 1800 >";
 	}
 	
 	//appease JMRI... No turnouts, no output pins, no sensors. 
