@@ -311,7 +311,7 @@ float quiescent_margin = 1.3 ; //number by which to scale measured quiescent
 int power_count = 4; // number of current measurements > quiescent to count in determining an ack
 
 //overload threshold in milliamps:
-float overload_threshold = 3.0;
+float overload_threshold = 3000.0;
 bool overload_trip = false;
 
 //for runDCC() engine and runDCCCurrent() current monitoring threads:
@@ -593,11 +593,13 @@ std::string dccCommand(std::string cmd)
 				else {
 					if (t == NULL) {
 						running = true;
+						vc.lock();
+						millisec = 1;
+						vc.unlock();
+						usleep(1000*MILLISEC_INTERVAL); //insure current monitoring before enabling power
 						t = new std::thread(&runDCC);
 						set_thread_name(t, "pulsetrain");
-						vc.lock();
-						millisec = 5;
-						vc.unlock();
+						
 #ifdef USE_PIGPIOD_IF
 						gpio_write(pigpio_id, PROGENABLE, 0);
 						gpio_write(pigpio_id, MAINENABLE, 1);
@@ -637,10 +639,13 @@ std::string dccCommand(std::string cmd)
 			else {
 				if (t == NULL) {
 					running = true;
+					vc.lock();
+					millisec = 1;
+					vc.unlock();
+					usleep(1000*MILLISEC_INTERVAL);
 					t = new std::thread(&runDCC);
 					set_thread_name(t, "pulsetrain");
 					vc.lock();
-					millisec = 5;
 					vc.unlock();
 #ifdef USE_PIGPIOD_IF
 					gpio_write(pigpio_id, PROGENABLE, 0);
@@ -672,14 +677,15 @@ std::string dccCommand(std::string cmd)
 #else
 					gpioWrite(MAINENABLE, 0);
 #endif
-					vc.lock();
-					millisec = 5;
-					vc.unlock();
+					
 					if (t && t->joinable()) {
 						t->join();
 						t->~thread();
 						t = NULL;
 					}
+					vc.lock();
+					millisec = MILLISEC_INTERVAL;
+					vc.unlock();
 					response <<  "<p0 MAIN>\n";
 				}
 			}
@@ -895,50 +901,57 @@ std::string dccCommand(std::string cmd)
 			}
 			else return "Error: malformed command.";
 			
+			vc.lock();
+			millisec = 1;  //throttle up the current monitor to support the ack resolution
+			vc.unlock();
+			
 				
 #ifdef USE_PIGPIOD_IF
-				wave_clear(pigpio_id);
-				wave_add_generic(pigpio_id, r.getPulseTrain().size(), r.getPulseTrain().data());
-				char rwave = wave_create(pigpio_id);
-				wave_add_generic(pigpio_id, p.getPulseTrain().size(), p.getPulseTrain().data());
-				char pwave = wave_create(pigpio_id);
-				char pchain[14] = {
-					//S-9.2.3: 3 resets:
-					rwave, rwave, rwave,
-					//S-9.2.3: 5 writes:
-					pwave, pwave, pwave, pwave, pwave,
-					//S-9.2.3: 6 resets:
-					rwave, rwave, rwave, rwave, rwave, rwave
-				};
-				gpio_write(pigpio_id, PROGENABLE, 1);
-				wave_chain(pigpio_id, pchain , 14);
-				while (wave_tx_busy(pigpio_id)) usleep(1000);
-				gpio_write(pigpio_id, PROGENABLE, 0);
-				wave_delete(pigpio_id, rwave);
-				wave_delete(pigpio_id, pwave);
+			wave_clear(pigpio_id);
+			wave_add_generic(pigpio_id, r.getPulseTrain().size(), r.getPulseTrain().data());
+			char rwave = wave_create(pigpio_id);
+			wave_add_generic(pigpio_id, p.getPulseTrain().size(), p.getPulseTrain().data());
+			char pwave = wave_create(pigpio_id);
+			char pchain[14] = {
+				//S-9.2.3: 3 resets:
+				rwave, rwave, rwave,
+				//S-9.2.3: 5 writes:
+				pwave, pwave, pwave, pwave, pwave,
+				//S-9.2.3: 6 resets:
+				rwave, rwave, rwave, rwave, rwave, rwave
+			};
+			gpio_write(pigpio_id, PROGENABLE, 1);
+			wave_chain(pigpio_id, pchain , 14);
+			while (wave_tx_busy(pigpio_id)) usleep(1000);
+			gpio_write(pigpio_id, PROGENABLE, 0);
+			wave_delete(pigpio_id, rwave);
+			wave_delete(pigpio_id, pwave);
 				
 #else
-				gpioWaveClear();
-				gpioWaveAddGeneric(r.getPulseTrain().size(), r.getPulseTrain().data());
-				char rwave = gpioWaveCreate();
-				gpioWaveAddGeneric(p.getPulseTrain().size(), p.getPulseTrain().data());
-				char pwave = gpioWaveCreate();
-				char pchain[14] = {
-					//S-9.2.3: 3 resets:
-					rwave, rwave, rwave,
-					//S-9.2.3: 5 writes:
-					pwave, pwave, pwave, pwave, pwave,
-					//S-9.2.3: 6 resets:
-					rwave, rwave, rwave, rwave, rwave, rwave
-				};
-				gpioWrite(PROGENABLE, 1);
-				gpioWaveChain(pchain, 14);
-				while (gpioWaveTxBusy()) usleep(1000);
-				gpioWrite(PROGENABLE, 0);
-				gpioWaveDelete(rwave);
-				gpioWaveDelete(pwave);
+			gpioWaveClear();
+			gpioWaveAddGeneric(r.getPulseTrain().size(), r.getPulseTrain().data());
+			char rwave = gpioWaveCreate();
+			gpioWaveAddGeneric(p.getPulseTrain().size(), p.getPulseTrain().data());
+			char pwave = gpioWaveCreate();
+			char pchain[14] = {
+				//S-9.2.3: 3 resets:
+				rwave, rwave, rwave,
+				//S-9.2.3: 5 writes:
+				pwave, pwave, pwave, pwave, pwave,
+				//S-9.2.3: 6 resets:
+				rwave, rwave, rwave, rwave, rwave, rwave
+			};
+			gpioWrite(PROGENABLE, 1);
+			gpioWaveChain(pchain, 14);
+			while (gpioWaveTxBusy()) usleep(1000);
+			gpioWrite(PROGENABLE, 0);
+			gpioWaveDelete(rwave);
+			gpioWaveDelete(pwave);
 #endif
-				
+
+			vc.lock();
+			millisec = MILLISEC_INTERVAL; 
+			vc.unlock();				
 				
 			
 		}
@@ -972,7 +985,7 @@ std::string dccCommand(std::string cmd)
 			
 			float quiescent = 800.0; //this will be modified in a few lines with a calculated value...
 			
-			printf("reading CV%d... ", cv); fflush(stdout);
+			//printf("reading CV%d... ", cv); fflush(stdout);
 			
 #ifdef USE_PIGPIOD_IF
 			wave_clear(pigpio_id);
@@ -1028,7 +1041,7 @@ std::string dccCommand(std::string cmd)
 				wave_delete(pigpio_id, pwave);
 
 				if (pwrcount >= power_count) {
-					printf("%d. quiescent: %04.2fma  pwrcount: %d (%d) maxcurrent: %04.2f\n", i, quiescent, pwrcount, power_count, max_current); fflush(stdout);
+					//printf("%d. quiescent: %04.2fma  pwrcount: %d (%d) maxcurrent: %04.2f\n", i, quiescent, pwrcount, power_count, max_current); fflush(stdout);
 					val = i;
 					break;
 				}
