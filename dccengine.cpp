@@ -44,12 +44,13 @@
 #include <algorithm>
 
 #include "dccpacket.h"
+#include "DatagramSocket.h"
 #include "ina219.h"
 
 #define MILLISEC_INTERVAL 500.0 //.01 second interval between voltage/current updates; this is in addition to the apx 1.4ms needed to read voltage,current
 
-std::stringstream logstream;
 bool logging = false;
+DatagramSocket *slog;
 
 long timestamp()
 {
@@ -58,25 +59,32 @@ long timestamp()
 	return tv.tv_usec / 1000000 + tv.tv_sec;
 }
 
-void writelog() 
+void loginit()
 {
-	std::ofstream outfile;
-	outfile.open("log.txt");
-	outfile << "log written at "<< timestamp() << std::endl;
-	outfile << logstream.str();
-	outfile.close();
+	slog = new DatagramSocket(9035, (char *) "255.255.255.255", true, true);
 }
-	
-void clearlog() {
-	logstream.str(std::string());
+
+void logclose()
+{
+	slog->~DatagramSocket();
 }
-	
-void startlog() {
-	logging = true;
+
+void log(std::string msg)
+{
+	char m[256];
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	int n = snprintf ( m, sizeof(m), "%ld_%ld: %s", tv.tv_sec, tv.tv_usec, msg.c_str() );
+	if ((n >0) & (n<256)) slog->send(m, n); 
 }
-	
-void stoplog() {
-	logging = false;
+
+void logcurrent(float current)
+{
+	char m[256];
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	int n = snprintf ( m, sizeof(m), "%ld_%ld: current=%04.2f", tv.tv_sec, tv.tv_usec, current );
+	if ((n >0) & (n<256)) slog->send(m, n); 
 }
 
 
@@ -352,10 +360,14 @@ void runDCCCurrent()
 					programming = false;
 					running = false;
 					printf("OVERLOAD: %04.2f\n", current);  fflush(stdout);
+					char m[256];
+					int n = snprintf(m, 256, "CURRENT OVERLOAD: %04.2f", current);
+					if (logging) log(m); 
 				}
 			}
 			else overload_count = 0;
 		}
+		if (logging) logcurrent(current);
 		usleep((int) (1000 * millisec));
 	}
 } 
@@ -460,6 +472,8 @@ void signal_handler(int signum) {
 	gpioWrite(MAINENABLE, 0);
 	gpioWrite(PROGENABLE, 0);
 #endif
+	if (logging) logclose();
+	logging=false;
 	currenting = false;
 	running = false;
 	if (c && c->joinable()) {
@@ -516,6 +530,11 @@ std::string dccInit()
 	if (config.find("prog1") != config.end()) MAIN1 = atoi(config["prog1"].c_str());
 	if (config.find("prog2") != config.end()) MAIN2 = atoi(config["prog2"].c_str());
 	if (config.find("progenable") != config.end()) MAINENABLE = atoi(config["progenable"].c_str());
+
+	if (config.find("logging") != config.end()) if (config["logging"] == "1") {
+		loginit();
+		logging = true;
+	}
 
 	if (config.find("samplecount") != config.end()) sample_count = atoi(config["samplecount"].c_str());
 	if (config.find("quiescentmargin") != config.end()) quiescent_margin = atof(config["quiescentmargin"].c_str());
@@ -1016,7 +1035,7 @@ std::string dccCommand(std::string cmd)
 			gpio_write(pigpio_id, PROGENABLE, 0);
 
 			if (log) {
-				printf("\ncurrents: %d entries - ",currents.size());
+				printf("\ncurrents: %ld entries - ",currents.size());
 				for (int i=0; i<currents.size(); i++)
 					printf ("%04.2f, ",currents[i]);
 				printf("\n");
