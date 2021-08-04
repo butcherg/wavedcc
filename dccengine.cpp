@@ -66,7 +66,7 @@ void loginit()
 
 void logclose()
 {
-	slog->~DatagramSocket();
+	if (slog) slog->~DatagramSocket();
 }
 
 void log(std::string msg)
@@ -75,7 +75,7 @@ void log(std::string msg)
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
 	int n = snprintf ( m, sizeof(m), "%ld_%ld: %s", tv.tv_sec, tv.tv_usec, msg.c_str() );
-	if ((n >0) & (n<256)) slog->send(m, n); 
+	if ((n >0) & (n<256) && (slog) ) slog->send(m, n); 
 }
 
 void logcurrent(float current)
@@ -84,7 +84,7 @@ void logcurrent(float current)
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
 	int n = snprintf ( m, sizeof(m), "%ld_%ld: current=%04.2f", tv.tv_sec, tv.tv_usec, current );
-	if ((n >0) & (n<256)) slog->send(m, n); 
+	if ((n >0) & (n<256) && (slog)) slog->send(m, n); 
 }
 
 
@@ -265,8 +265,7 @@ inline bool fileExists (const std::string& name)
 std::map<std::string, std::string> getConfig(std::string filename)
 {
 	std::map<std::string, std::string> config;
-	std::ifstream infile(filename);
-	if (!infile.is_open()) return config; //empty config
+	std::ifstream infile(filename.c_str());
 	std::string line;
 	while (std::getline(infile, line)) {
 		if (line[0] == '#') continue; //the whole line is a comment
@@ -359,7 +358,6 @@ void runDCCCurrent()
 					overload_trip = true;
 					programming = false;
 					running = false;
-					printf("OVERLOAD: %04.2f\n", current);  fflush(stdout);
 					char m[256];
 					int n = snprintf(m, 256, "CURRENT OVERLOAD: %04.2f", current);
 					if (logging) log(m); 
@@ -531,9 +529,11 @@ std::string dccInit()
 	if (config.find("prog2") != config.end()) MAIN2 = atoi(config["prog2"].c_str());
 	if (config.find("progenable") != config.end()) MAINENABLE = atoi(config["progenable"].c_str());
 
-	if (config.find("logging") != config.end()) if (config["logging"] == "1") {
+	if (config.find("logging") != config.end()) {
+		if (config["logging"] == "1") {
 		loginit();
 		logging = true;
+		}
 	}
 
 	if (config.find("samplecount") != config.end()) sample_count = atoi(config["samplecount"].c_str());
