@@ -351,6 +351,7 @@ void runDCCCurrent()
 					overload_trip = true;
 					programming = false;
 					running = false;
+					printf("OVERLOAD: %04.2f\n", current);  fflush(stdout);
 				}
 			}
 			else overload_count = 0;
@@ -961,14 +962,21 @@ std::string dccCommand(std::string cmd)
 	
 	//read CV:
 	//<R CV CALLBACKNUM CALLBACKSUB> e.g., <R 32 0 0>
+	//short version - callback fields can be omitted
+	//if short version and appended wtih "log", e.g., "R 29 log", various information will be printed to stdout
 	else if (cmdstring[0] == "R") {
 		if (programming) {
 			int cv, cb, cbsub;
+			bool log = false;
 			
 			if (cmdstring.size() == 4) {
 				cv = atoi(cmdstring[1].c_str());
 				cb = atoi(cmdstring[2].c_str());
 				cbsub = atoi(cmdstring[3].c_str());
+			}
+			else if (cmdstring.size() == 3) {
+				cv = atoi(cmdstring[1].c_str());
+				if (cmdstring[2] == "log") log = true;
 			}
 			else if (cmdstring.size() == 2) {
 				cv = atoi(cmdstring[1].c_str());
@@ -982,10 +990,11 @@ std::string dccCommand(std::string cmd)
 			vc.lock();
 			millisec = 1;  //throttle up the current monitor to support the ack resolution
 			vc.unlock();
+			usleep(1000*MILLISEC_INTERVAL);
 			
 			float quiescent = 800.0; //this will be modified in a few lines with a calculated value...
 			
-			//printf("reading CV%d... ", cv); fflush(stdout);
+			if (log) printf("reading CV%d... \n", cv); fflush(stdout);
 			
 #ifdef USE_PIGPIOD_IF
 			wave_clear(pigpio_id);
@@ -1005,13 +1014,36 @@ std::string dccCommand(std::string cmd)
 			wave_chain(pigpio_id, schain, 20);
 			while (wave_tx_busy(pigpio_id)) { currents.push_back(current); usleep(1000); }
 			gpio_write(pigpio_id, PROGENABLE, 0);
+
+			if (log) {
+				printf("\ncurrents: %d entries - ",currents.size());
+				for (int i=0; i<currents.size(); i++)
+					printf ("%04.2f, ",currents[i]);
+				printf("\n");
+			}
 			
 			//calculate quiescent from the last 10 power-on current measurements:
 			float q = 0.0;
-			for (int i=currents.size()-sample_count; i<currents.size(); i++) 
+			for (int i=currents.size()-sample_count; i<currents.size(); i++) {
 				if (currents[i] > q) q = currents[i];
-			quiescent = q * quiescent_margin;
+			}
+			
+/*Not yet ready for prime-time:
+			//if quiescent roughly equals the initial current measurement, then there's no locomotive to read:
+			if (log) printf("q: %04.2f currents[0]w/margin: %04.2f\n",q, currents[0] * 1.05);
+			if (q <= currents[0] * 1.05) {
+				if (cmdstring.size() == 4) 
+					response << "<r " << cb << "|" << cbsub << "|" << -1 << ">";
+				else if (cmdstring.size() == 2 | cmdstring.size() == 3)
+					response << "<r CV" << cv << "=" << -1 << ">";
 
+				return response.str();
+			}
+*/			
+			quiescent = q * quiescent_margin;
+			
+			if (log) printf("\n");
+//			usleep(1000*6);
 			
 			//walk through the values, stop when one renders a power count >= 5:
 			for (int i= 1; i <= 255; i++) {
@@ -1029,7 +1061,7 @@ std::string dccCommand(std::string cmd)
 				
 				float max_current = 0.0;
 				int pwrcount = 0;
-				gpio_write(pigpio_id, PROGENABLE, 1);
+				gpio_write(pigpio_id, PROGENABLE, 1); 
 				wave_chain(pigpio_id, pchain, 13);
 				while (wave_tx_busy(pigpio_id)) { 
 					float c = current;
@@ -1041,7 +1073,7 @@ std::string dccCommand(std::string cmd)
 				wave_delete(pigpio_id, pwave);
 
 				if (pwrcount >= power_count) {
-					//printf("%d. quiescent: %04.2fma  pwrcount: %d (%d) maxcurrent: %04.2f\n", i, quiescent, pwrcount, power_count, max_current); fflush(stdout);
+					if (log) printf("%d. quiescent: %04.2fma  pwrcount: %d (%d) maxcurrent: %04.2f\n", i, quiescent, pwrcount, power_count, max_current); fflush(stdout);
 					val = i;
 					break;
 				}
@@ -1066,16 +1098,24 @@ std::string dccCommand(std::string cmd)
 			gpioWaveChain(schain, 20);
 			while (gpioWaveTxBusy()) { currents.push_back(current); usleep(1000); }
 			gpioWrite(PROGENABLE, 0);
+
+			if (log) {
+				printf("\ncurrents: %d entries - ",currents.size());
+				for (int i=0; i<currents.size(); i++)
+					printf ("%04.2f, ",currents[i]);
+				printf("\n");
+			}
 			
 			//calculate quiescent from the last 10 power-on current measurements:
 			float q = 0.0;
-			for (int i=currents.size()-sample_count; i<currents.size(); i++) 
+			for (int i=currents.size()-sample_count; i<currents.size(); i++) {
+				printf ("%04.2f, ",currents[i]);
 				if (currents[i] > q) q = currents[i];
+			}
 			quiescent = q * quiescent_margin;
 			
-			//for (int i=0; i<currents.size(); i++)
-			//	printf("%04.2f, ",currents[i]);
-			//printf("\n");
+			if (log) printf("\n");
+			usleep(1000*6);
 
 			//walk through the values, stop when one renders a power count >= 5:
 			for (int i= 1; i <= 255; i++) {
@@ -1117,7 +1157,7 @@ std::string dccCommand(std::string cmd)
 			vc.unlock();
 			if (cmdstring.size() == 4) 
 				response << "<r " << cb << "|" << cbsub << "|" << val << ">";
-			else if (cmdstring.size() == 2)
+			else if (cmdstring.size() == 2 | cmdstring.size() == 3)
 				 response << "<r CV" << cv << "=" << val << ">";
 
 		}
