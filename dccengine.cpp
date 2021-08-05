@@ -314,7 +314,7 @@ int PROG1, PROG2, PROGENABLE;
 
 //variables to control CV reading behavior:
 int sample_count = 10; //number of samples from the tail of the current measurment vector to use in determining quiescent
-float quiescent_margin = 1.3 ; //number by which to scale measured quiescent
+float quiescent_margin = 1.1 ; //number by which to scale measured quiescent
 int power_count = 4; // number of current measurements > quiescent to count in determining an ack
 
 //overload threshold in milliamps:
@@ -1064,8 +1064,6 @@ std::string dccCommand(std::string cmd)
 */			
 			quiescent = q * quiescent_margin;
 			
-//			usleep(1000*6);
-			
 			//walk through the values, stop when one renders a power count >= 5:
 			for (int i= 1; i <= 255; i++) {
 				DCCPacket p = DCCPacket::makeServiceModeDirectVerifyBytePacket(PROG1, PROG2, cv, (char) i); 
@@ -1073,11 +1071,11 @@ std::string dccCommand(std::string cmd)
 				char pwave = wave_create(pigpio_id);
 				char pchain[13] = {
 					//S-9.2.3: 3 resets:
-					rwave, rwave, rwave, rwave, //rwave, rwave,
+					rwave, rwave, rwave, rwave,
 					//S-9.2.3: 5 writes:
 					pwave, pwave, pwave, pwave, pwave,
-					//resets to cover ack period, if present:
-					rwave, rwave, rwave, rwave //, rwave, rwave,
+					//S-9.2.3: 1 or more resets to cover ack period, if present:
+					rwave, rwave, rwave
 				};
 				
 				float max_current = 0.0;
@@ -1142,7 +1140,6 @@ std::string dccCommand(std::string cmd)
 			quiescent = q * quiescent_margin;
 			
 			if (log) printf("\n");
-			usleep(1000*6);
 
 			//walk through the values, stop when one renders a power count >= 5:
 			for (int i= 1; i <= 255; i++) {
@@ -1151,11 +1148,11 @@ std::string dccCommand(std::string cmd)
 				char pwave = gpioWaveCreate();
 				char pchain[13] = {
 					//S-9.2.3: 3 resets:
-					rwave, rwave, rwave, rwave, //rwave, rwave,
+					rwave, rwave, rwave, 
 					//S-9.2.3: 5 writes:
 					pwave, pwave, pwave, pwave, pwave,
-					//resets to cover ack period, if present:
-					rwave, rwave, rwave, rwave //, rwave, rwave,
+					//S-9.2.3: 1 or more resets to cover ack period, if present:
+					rwave, rwave, rwave
 				};
 				
 				float max_current = 0.0;
