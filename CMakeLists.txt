@@ -19,7 +19,9 @@ add_library(DatagramSocket OBJECT DatagramSocket.cpp)
 
 add_executable(wavedcc wavedcc.cpp)
 add_executable(wavedccd wavedccd.cpp)
+add_executable(dcclog dcclog.cpp)
 
+target_link_libraries(dcclog DatagramSocket)
 
 if (USEPIGPIOD_IF)
 

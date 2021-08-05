@@ -61,7 +61,7 @@ long timestamp()
 
 void loginit()
 {
-	slog = new DatagramSocket(9035, (char *) "255.255.255.255", true, true);
+	slog = new DatagramSocket(9035, (char *) "127.0.0.1", true, true);
 }
 
 void logclose()
