@@ -52,12 +52,21 @@
 bool logging = false;
 DatagramSocket *slog;
 
+/*
 long timestamp()
 {
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
-	return tv.tv_usec / 1000000 + tv.tv_sec;
+	//return tv.tv_usec / 1000000 + tv.tv_sec;
+	return tv.tv_sec * 1000000 + tv.tv_usec;
 }
+
+uint64_t timestamp() {
+    struct timeval tv;
+    gettimeofday(&tv,NULL);
+    return tv.tv_sec*(uint64_t)1000000+tv.tv_usec;
+}
+*/
 
 void loginit()
 {
@@ -74,16 +83,16 @@ void log(std::string msg)
 	char m[256];
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
-	int n = snprintf ( m, sizeof(m), "%ld_%ld: %s", tv.tv_sec, tv.tv_usec, msg.c_str() );
+	int n = snprintf ( m, sizeof(m), "%ld_%06ld: %s", tv.tv_sec, tv.tv_usec, msg.c_str() );
 	if ((n >0) & (n<256) && (slog) ) slog->send(m, n); 
 }
 
-void logcurrent(float current)
+void logcurrent(float current, float voltage)
 {
 	char m[256];
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
-	int n = snprintf ( m, sizeof(m), "%ld_%ld: current=%04.2f", tv.tv_sec, tv.tv_usec, current );
+	int n = snprintf ( m, sizeof(m), "%ld_%06ld: current=%04.2f,voltage=%04.2f", tv.tv_sec, tv.tv_usec, current, voltage );
 	if ((n >0) & (n<256) && (slog)) slog->send(m, n); 
 }
 
@@ -365,7 +374,7 @@ void runDCCCurrent()
 			}
 			else overload_count = 0;
 		}
-		if (logging) logcurrent(current);
+		if (logging) logcurrent(current, voltage);
 		usleep((int) (1000 * millisec));
 	}
 } 
@@ -1014,8 +1023,6 @@ std::string dccCommand(std::string cmd)
 			
 			float quiescent = 800.0; //this will be modified in a few lines with a calculated value...
 			
-			if (dlog) printf("reading CV%d... \n", cv); fflush(stdout);
-			
 #ifdef USE_PIGPIOD_IF
 			wave_clear(pigpio_id);
 			wave_add_generic(pigpio_id, r.getPulseTrain().size(), r.getPulseTrain().data());
@@ -1036,13 +1043,6 @@ std::string dccCommand(std::string cmd)
 			while (wave_tx_busy(pigpio_id)) { currents.push_back(current); usleep(1000); }
 			gpio_write(pigpio_id, PROGENABLE, 0);
 			if (logging) log("read CV: 20 power up resets complete");
-
-			if (dlog) {
-				printf("\ncurrents: %ld entries - ",currents.size());
-				for (int i=0; i<currents.size(); i++)
-					printf ("%04.2f, ",currents[i]);
-				printf("\n");
-			}
 			
 			//calculate quiescent from the last 10 power-on current measurements:
 			float q = 0.0;
@@ -1069,7 +1069,7 @@ std::string dccCommand(std::string cmd)
 				DCCPacket p = DCCPacket::makeServiceModeDirectVerifyBytePacket(PROG1, PROG2, cv, (char) i); 
 				wave_add_generic(pigpio_id, p.getPulseTrain().size(), p.getPulseTrain().data());
 				char pwave = wave_create(pigpio_id);
-				char pchain[13] = {
+				char pchain[12] = {
 					//S-9.2.3: 3 resets:
 					rwave, rwave, rwave, rwave,
 					//S-9.2.3: 5 writes:
@@ -1083,7 +1083,7 @@ std::string dccCommand(std::string cmd)
 				snprintf(msg, 256, "Read CV: start %d", i);
 				if (logging) log(msg);
 				gpio_write(pigpio_id, PROGENABLE, 1); 
-				wave_chain(pigpio_id, pchain, 13);
+				wave_chain(pigpio_id, pchain, 12);
 				while (wave_tx_busy(pigpio_id)) { 
 					float c = current;
 					if (c > quiescent) pwrcount++; 
@@ -1096,8 +1096,7 @@ std::string dccCommand(std::string cmd)
 				wave_delete(pigpio_id, pwave);
 
 				if (pwrcount >= power_count) {
-					if (log) printf("%d. quiescent: %04.2fma  pwrcount: %d (%d) maxcurrent: %04.2f\n", i, quiescent, pwrcount, power_count, max_current); fflush(stdout);
-					snprintf(msg, 256, "CV %d=%d", cv, i); 
+					snprintf(msg, 256, "CV%d=%d. quiescent: %04.2fma  pwrcount: %d (>%d) maxcurrent: %04.2fma", cv, i, quiescent, pwrcount, power_count, max_current);
 					if (logging) log(msg);
 					val = i;
 					break;
@@ -1119,17 +1118,12 @@ std::string dccCommand(std::string cmd)
 				rwave, rwave, rwave, rwave, rwave
 			};
 			
+			if (logging) log("read CV: start 20 power up resets");
 			gpioWrite(PROGENABLE, 1);
 			gpioWaveChain(schain, 20);
 			while (gpioWaveTxBusy()) { currents.push_back(current); usleep(1000); }
 			gpioWrite(PROGENABLE, 0);
-
-			if (log) {
-				printf("\ncurrents: %d entries - ",currents.size());
-				for (int i=0; i<currents.size(); i++)
-					printf ("%04.2f, ",currents[i]);
-				printf("\n");
-			}
+			if (logging) log("read CV: 20 power up resets complete");
 			
 			//calculate quiescent from the last 10 power-on current measurements:
 			float q = 0.0;
@@ -1146,7 +1140,7 @@ std::string dccCommand(std::string cmd)
 				DCCPacket p = DCCPacket::makeServiceModeDirectVerifyBytePacket(PROG1, PROG2, cv, (char) i); 
 				gpioWaveAddGeneric(p.getPulseTrain().size(), p.getPulseTrain().data());
 				char pwave = gpioWaveCreate();
-				char pchain[13] = {
+				char pchain[12] = {
 					//S-9.2.3: 3 resets:
 					rwave, rwave, rwave, 
 					//S-9.2.3: 5 writes:
@@ -1157,8 +1151,10 @@ std::string dccCommand(std::string cmd)
 				
 				float max_current = 0.0;
 				int pwrcount = 0;
+				snprintf(msg, 256, "Read CV: start %d", i);
+				if (logging) log(msg);
 				gpioWrite(PROGENABLE, 1);
-				gpioWaveChain(pchain, 13);
+				gpioWaveChain(pchain, 12);
 				while (gpioWaveTxBusy()) { 
 					float c = current;
 					if (c > quiescent) pwrcount++; 
@@ -1166,10 +1162,13 @@ std::string dccCommand(std::string cmd)
 					usleep(1000); 
 				}
 				gpioWrite(PROGENABLE, 0);
+				snprintf(msg, 256, "Read CV%d: finish %d", cv, i);
+				if (logging) log(msg);
 				gpioWaveDelete(pwave);
 
 				if (pwrcount >= power_count) {
-					printf("%d. quiescent: %04.2fma  pwrcount: %d (%d) maxcurrent: %04.2f\n", i, quiescent, pwrcount, power_count, max_current); fflush(stdout);
+					snprintf(msg, 256, "CV%d=%d. quiescent: %04.2fma  pwrcount: %d (>%d) maxcurrent: %04.2fma\n", cv, i, quiescent, pwrcount, power_count, max_current);
+					if (logging) log(msg);
 					val = i;
 					break;
 				}
