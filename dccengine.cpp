@@ -986,7 +986,8 @@ std::string dccCommand(std::string cmd)
 	else if (cmdstring[0] == "R") {
 		if (programming) {
 			int cv, cb, cbsub;
-			bool log = false;
+			bool dlog = false;
+			char msg[256];
 			
 			if (cmdstring.size() == 4) {
 				cv = atoi(cmdstring[1].c_str());
@@ -995,7 +996,7 @@ std::string dccCommand(std::string cmd)
 			}
 			else if (cmdstring.size() == 3) {
 				cv = atoi(cmdstring[1].c_str());
-				if (cmdstring[2] == "log") log = true;
+				if (cmdstring[2] == "log") dlog = true;
 			}
 			else if (cmdstring.size() == 2) {
 				cv = atoi(cmdstring[1].c_str());
@@ -1013,7 +1014,7 @@ std::string dccCommand(std::string cmd)
 			
 			float quiescent = 800.0; //this will be modified in a few lines with a calculated value...
 			
-			if (log) printf("reading CV%d... \n", cv); fflush(stdout);
+			if (dlog) printf("reading CV%d... \n", cv); fflush(stdout);
 			
 #ifdef USE_PIGPIOD_IF
 			wave_clear(pigpio_id);
@@ -1029,12 +1030,14 @@ std::string dccCommand(std::string cmd)
 				rwave, rwave, rwave, rwave, rwave
 			};
 
+			if (logging) log("read CV: start 20 power up resets");
 			gpio_write(pigpio_id, PROGENABLE, 1);
 			wave_chain(pigpio_id, schain, 20);
 			while (wave_tx_busy(pigpio_id)) { currents.push_back(current); usleep(1000); }
 			gpio_write(pigpio_id, PROGENABLE, 0);
+			if (logging) log("read CV: 20 power up resets complete");
 
-			if (log) {
+			if (dlog) {
 				printf("\ncurrents: %ld entries - ",currents.size());
 				for (int i=0; i<currents.size(); i++)
 					printf ("%04.2f, ",currents[i]);
@@ -1061,7 +1064,6 @@ std::string dccCommand(std::string cmd)
 */			
 			quiescent = q * quiescent_margin;
 			
-			if (log) printf("\n");
 //			usleep(1000*6);
 			
 			//walk through the values, stop when one renders a power count >= 5:
@@ -1080,6 +1082,8 @@ std::string dccCommand(std::string cmd)
 				
 				float max_current = 0.0;
 				int pwrcount = 0;
+				snprintf(msg, 256, "Read CV: start %d", i);
+				if (logging) log(msg);
 				gpio_write(pigpio_id, PROGENABLE, 1); 
 				wave_chain(pigpio_id, pchain, 13);
 				while (wave_tx_busy(pigpio_id)) { 
@@ -1089,10 +1093,14 @@ std::string dccCommand(std::string cmd)
 					usleep(1000); 
 				}
 				gpio_write(pigpio_id, PROGENABLE, 0);
+				snprintf(msg, 256, "Read CV%d: finish %d", cv, i);
+				if (logging) log(msg);
 				wave_delete(pigpio_id, pwave);
 
 				if (pwrcount >= power_count) {
 					if (log) printf("%d. quiescent: %04.2fma  pwrcount: %d (%d) maxcurrent: %04.2f\n", i, quiescent, pwrcount, power_count, max_current); fflush(stdout);
+					snprintf(msg, 256, "CV %d=%d", cv, i); 
+					if (logging) log(msg);
 					val = i;
 					break;
 				}
