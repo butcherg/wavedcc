@@ -995,17 +995,12 @@ std::string dccCommand(std::string cmd)
 	else if (cmdstring[0] == "R") {
 		if (programming) {
 			int cv, cb, cbsub;
-			bool dlog = false;
 			char msg[256];
 			
 			if (cmdstring.size() == 4) {
 				cv = atoi(cmdstring[1].c_str());
 				cb = atoi(cmdstring[2].c_str());
 				cbsub = atoi(cmdstring[3].c_str());
-			}
-			else if (cmdstring.size() == 3) {
-				cv = atoi(cmdstring[1].c_str());
-				if (cmdstring[2] == "log") dlog = true;
 			}
 			else if (cmdstring.size() == 2) {
 				cv = atoi(cmdstring[1].c_str());
