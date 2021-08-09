@@ -599,6 +599,64 @@ std::string dccInit()
 	return resultstr.str();
 }
 
+//depends on the prior creation of rwave by the caller...
+bool verifyBit(char rwave, float quiescent, unsigned cv, unsigned char bitpos, unsigned char val)
+{
+	char msg[256];
+	std::vector<float> currents;
+
+	DCCPacket p = DCCPacket::makeServiceModeDirectVerifyBitPacket(PROG1, PROG2, cv, bitpos, val);
+
+#ifdef USE_PIGPIOD_IF
+	wave_add_generic(pigpio_id, p.getPulseTrain().size(), p.getPulseTrain().data());	
+	char pwave = wave_create(pigpio_id);
+#else
+	gpioWaveAddGeneric(p.getPulseTrain().size(), p.getPulseTrain().data());
+	char pwave = gpioWaveCreate();
+#endif
+
+	std::vector<char> pchain = {
+		//S-9.2.3: 3 resets:
+		rwave, rwave, rwave,
+		//S-9.2.3: 5 writes:
+		pwave, pwave, pwave, pwave, pwave,
+		//S-9.2.3: 1 or more resets to cover ack period, if present:
+		rwave, rwave, rwave, rwave, rwave
+	};
+
+	float max_current = 0.0;
+	int pwrcount = 0;
+	snprintf(msg, 256, "Read CV%d bit %d = %d", cv, bitpos, val);
+	if (logging) log(msg);
+#ifdef USE_PIGPIOD_IF	
+	gpio_write(pigpio_id, PROGENABLE, 1); 
+	wave_chain(pigpio_id, pchain.data(), pchain.size());
+	while (wave_tx_busy(pigpio_id)) { currents.push_back(current); usleep(1000); }
+	gpio_write(pigpio_id, PROGENABLE, 0);
+#else
+	gpioWrite(PROGENABLE, 1);
+	gpioWaveChain(pchain.data(), pchain.size());
+	while (gpioWaveTxBusy()) { currents.push_back(current); usleep(1000); }
+	gpioWrite(PROGENABLE, 0);
+#endif
+
+	//count back from the end of sampling sample_count samples, find current measurements > quiescent + 60ma
+	for (int i=currents.size()-sample_count; i<currents.size(); i++) {
+		if (currents[i] > quiescent + 60.0) pwrcount++; //S-9.2.3 60.0ma
+	}
+
+	if (pwrcount >= 5) { //S-9.2.3 6ms +/- 1ms
+		snprintf(msg, 256, "CV%d found %d in bit position %d", cv, val, bitpos);
+		if (logging) log(msg);
+		val = 0;
+		return true;
+	}
+	snprintf(msg, 256, "CV%d did not find %d in bit position %d", cv, val, bitpos);
+	if (logging) log(msg);
+	return false;
+
+}
+
 //global, used to run a single engine with adr/+/-:
 //int address=0, speed=0, direction=1;
 bool headlight=true;
@@ -621,6 +679,11 @@ std::string dccCommand(std::string cmd)
 				}
 				else {
 					if (t == NULL) {
+#ifdef USE_PIGPIOD_IF
+						wave_clear(pigpio_id);
+#else
+						gpioWaveClear();
+#endif
 						running = true;
 						vc.lock();
 						millisec = 1;
@@ -667,6 +730,11 @@ std::string dccCommand(std::string cmd)
 			}
 			else {
 				if (t == NULL) {
+#ifdef USE_PIGPIOD_IF
+					wave_clear(pigpio_id);
+#else
+					gpioWaveClear();
+#endif
 					running = true;
 					vc.lock();
 					millisec = 1;
@@ -680,6 +748,7 @@ std::string dccCommand(std::string cmd)
 					gpio_write(pigpio_id, PROGENABLE, 0);
 					gpio_write(pigpio_id, MAINENABLE, 1);
 #else
+
 					gpioWrite(PROGENABLE, 0);
 					gpioWrite(MAINENABLE, 1);
 #endif
@@ -996,7 +1065,8 @@ std::string dccCommand(std::string cmd)
 		if (programming) {
 			int cv, cb, cbsub;
 			char msg[256];
-			
+			std::vector<float> currents; //collect current measurements during power-up sequence
+
 			if (cmdstring.size() == 4) {
 				cv = atoi(cmdstring[1].c_str());
 				cb = atoi(cmdstring[2].c_str());
@@ -1009,23 +1079,21 @@ std::string dccCommand(std::string cmd)
 
 			DCCPacket r = DCCPacket::makeBaselineResetPacket(PROG1, PROG2);
 			DCCPacket p;
-			
-			//int val = -1;  //error, if it's not populated below
+
 			vc.lock();
 			millisec = 1;  //throttle up the current monitor to support the ack resolution
 			vc.unlock();
 			usleep(1000*MILLISEC_INTERVAL);
-			
+
 			float quiescent = 800.0; //this will be modified in a few lines with a calculated value...
-			
+
 #ifdef USE_PIGPIOD_IF
 			wave_clear(pigpio_id);
 			wave_add_generic(pigpio_id, r.getPulseTrain().size(), r.getPulseTrain().data());
 			char rwave = wave_create(pigpio_id);
-			std::vector<float> currents; //collect current measurements during power-up sequence
-			
+
 			//S-9.2.3 power-up sequence, 20 valid packets to stabilize the decoder:
-			char schain[20] = {
+			std::vector<char> schain = {
 				rwave, rwave, rwave, rwave, rwave, 
 				rwave, rwave, rwave, rwave, rwave,
 				rwave, rwave, rwave, rwave, rwave,
@@ -1034,271 +1102,80 @@ std::string dccCommand(std::string cmd)
 
 			if (logging) log("read CV: start 20 power up resets");
 			gpio_write(pigpio_id, PROGENABLE, 1);
-			wave_chain(pigpio_id, schain, 20);
+			wave_chain(pigpio_id, schain.data(), schain.size());
 			while (wave_tx_busy(pigpio_id)) { currents.push_back(current); usleep(1000); }
 			gpio_write(pigpio_id, PROGENABLE, 0);
 			if (logging) log("read CV: 20 power up resets complete");
-			
-			//calculate quiescent from the last 10 power-on current measurements:
-			float q = 0.0;
-			for (int i=currents.size()-sample_count; i<currents.size(); i++) {
-				if (currents[i] > q) q = currents[i];
-			}
-				
-			quiescent = q * quiescent_margin;
-			
-			
-			
-			//Using bit-verify to walk the bits of the CV, collecting the 1s and 0s
-			//First, start with bit 0, and do a verify on both 0 and 1.  If no ack
-			//is returned for both, then there's no locomotive on the programming track,
-			//or the connection is bad.  If '1' verify succeeds, set byte accumulator
-			//to 1, else if 0 succeeds, do the rest of the bits, else return -1
-			
-			unsigned char val;
-			
-			//look for 1 in bitposition 0
-			p = DCCPacket::makeServiceModeDirectVerifyBitPacket(PROG1, PROG2, cv, 0, 1);			
-			wave_add_generic(pigpio_id, p.getPulseTrain().size(), p.getPulseTrain().data());
-			char pwave = wave_create(pigpio_id);
-			char pchain[12] = {
-				//S-9.2.3: 3 resets:
-				rwave, rwave, rwave, rwave,
-				//S-9.2.3: 5 writes:
-				pwave, pwave, pwave, pwave, pwave,
-				//S-9.2.3: 1 or more resets to cover ack period, if present:
-				rwave, rwave, rwave
-			};
-				
-			float max_current = 0.0;
-			int pwrcount = 0;
-			snprintf(msg, 256, "Read bit 0 = 1");
-			if (logging) log(msg);
-			gpio_write(pigpio_id, PROGENABLE, 1); 
-			wave_chain(pigpio_id, pchain, 12);
-			while (wave_tx_busy(pigpio_id)) { 
-				float c = current;
-				if (c > quiescent) pwrcount++; 
-				if (c > max_current) max_current = c;
-				usleep(1000); 
-			}
-			gpio_write(pigpio_id, PROGENABLE, 0);
-			
-			if (pwrcount >= power_count) {
-				//snprintf(msg, 256, "CV%d=%d. quiescent: %04.2fma  pwrcount: %d (>%d) maxcurrent: %04.2fma", cv, i, quiescent, pwrcount, power_count, max_current);
-				snprintf(msg, 256, "found 1 in bit position 0");
-				if (logging) log(msg);
-				val = 1;
-			}
-			else {
-				//look for 0 in bitposition 0
-				
-				//if that succeeds, go on to do the rest
-				//else set response to -1, no locomotive was found
-				p = DCCPacket::makeServiceModeDirectVerifyBitPacket(PROG1, PROG2, cv, 0, 0);			
-				wave_add_generic(pigpio_id, p.getPulseTrain().size(), p.getPulseTrain().data());
-				char pwave = wave_create(pigpio_id);
-				char pchain[12] = {
-					//S-9.2.3: 3 resets:
-					rwave, rwave, rwave, rwave,
-					//S-9.2.3: 5 writes:
-					pwave, pwave, pwave, pwave, pwave,
-					//S-9.2.3: 1 or more resets to cover ack period, if present:
-					rwave, rwave, rwave
-				};
-				
-				float max_current = 0.0;
-				int pwrcount = 0;
-				snprintf(msg, 256, "Read bit 0 = 1");
-				if (logging) log(msg);
-				gpio_write(pigpio_id, PROGENABLE, 1); 
-				wave_chain(pigpio_id, pchain, 12);
-				while (wave_tx_busy(pigpio_id)) { 
-					float c = current;
-					if (c > quiescent) pwrcount++; 
-					if (c > max_current) max_current = c;
-					usleep(1000); 
-				}	
-				gpio_write(pigpio_id, PROGENABLE, 0);
-				
-				if (pwrcount >= power_count) {
-					//snprintf(msg, 256, "CV%d=%d. quiescent: %04.2fma  pwrcount: %d (>%d) maxcurrent: %04.2fma", cv, i, quiescent, pwrcount, power_count, max_current);
-					snprintf(msg, 256, "found 0 in bit position 0");
-					if (logging) log(msg);
-					val = 0;
-				}
-				else {
-					//return response = -1  //exit dccCommand();
-					if (cmdstring.size() == 4) 
-						response << "<r " << cb << "|" << cbsub << "|" << -1 << ">";
-					else if (cmdstring.size() == 2 | cmdstring.size() == 3)
-						response << "<r CV" << cv << "=" << -1 << ">";
-					return response.str();
-				}
-				
-				//if got this far, got at least 1 ack for finding bit 0, and val = the found bit in 0
-				//loop through remaining bits, storing 1s to val with val | 1<<i
-				
-				for (unsigned i = 1; i < 8; i++) {
-					p = DCCPacket::makeServiceModeDirectVerifyBitPacket(PROG1, PROG2, cv, 1, 1);			
-					wave_add_generic(pigpio_id, p.getPulseTrain().size(), p.getPulseTrain().data());
-					char pwave = wave_create(pigpio_id);
-					char pchain[12] = {
-						//S-9.2.3: 3 resets:
-						rwave, rwave, rwave, rwave,
-						//S-9.2.3: 5 writes:
-						pwave, pwave, pwave, pwave, pwave,
-						//S-9.2.3: 1 or more resets to cover ack period, if present:
-						rwave, rwave, rwave
-					};
-				
-					float max_current = 0.0;
-					int pwrcount = 0;
-					snprintf(msg, 256, "Read bit 0 = 1");
-					if (logging) log(msg);
-					gpio_write(pigpio_id, PROGENABLE, 1); 
-					wave_chain(pigpio_id, pchain, 12);
-					while (wave_tx_busy(pigpio_id)) { 
-						float c = current;
-						if (c > quiescent) pwrcount++; 
-						if (c > max_current) max_current = c;
-						usleep(1000); 
-					}	
-					gpio_write(pigpio_id, PROGENABLE, 0);
-					
-					if (pwrcount >= power_count) {
-						snprintf(msg, 256, "found 1 in bit position %d", i);
-						if (logging) log(msg);
-						val = val | 1<<i; //if a 1 is found, else leave the bit alone (0)
-					}
-				}
-			}
-				
-#else
-#endif
-			
-			
-/*
-			//walk through the values, stop when one renders a power count >= 5:
-			for (int i= 1; i <= 255; i++) {
-				DCCPacket p = DCCPacket::makeServiceModeDirectVerifyBytePacket(PROG1, PROG2, cv, (char) i); 
-				wave_add_generic(pigpio_id, p.getPulseTrain().size(), p.getPulseTrain().data());
-				char pwave = wave_create(pigpio_id);
-				char pchain[12] = {
-					//S-9.2.3: 3 resets:
-					rwave, rwave, rwave, rwave,
-					//S-9.2.3: 5 writes:
-					pwave, pwave, pwave, pwave, pwave,
-					//S-9.2.3: 1 or more resets to cover ack period, if present:
-					rwave, rwave, rwave
-				};
-				
-				float max_current = 0.0;
-				int pwrcount = 0;
-				snprintf(msg, 256, "Read CV: start %d", i);
-				if (logging) log(msg);
-				gpio_write(pigpio_id, PROGENABLE, 1); 
-				wave_chain(pigpio_id, pchain, 12);
-				while (wave_tx_busy(pigpio_id)) { 
-					float c = current;
-					if (c > quiescent) pwrcount++; 
-					if (c > max_current) max_current = c;
-					usleep(1000); 
-				}
-				gpio_write(pigpio_id, PROGENABLE, 0);
-				snprintf(msg, 256, "Read CV%d: finish %d", cv, i);
-				if (logging) log(msg);
-				wave_delete(pigpio_id, pwave);
-
-				if (pwrcount >= power_count) {
-					snprintf(msg, 256, "CV%d=%d. quiescent: %04.2fma  pwrcount: %d (>%d) maxcurrent: %04.2fma", cv, i, quiescent, pwrcount, power_count, max_current);
-					if (logging) log(msg);
-					val = i;
-					break;
-				}
-
-			}
-			wave_delete(pigpio_id, rwave);
 #else
 			gpioWaveClear();
 			gpioWaveAddGeneric(r.getPulseTrain().size(), r.getPulseTrain().data());
 			char rwave = gpioWaveCreate();
-			std::vector<float> currents; //collect current measurements during power-up sequence
-			
+
 			//S-9.2.3 power-up sequence, 20 valid packets to stabilize the decoder:
-			char schain[20] = {
+			std::vector<char> schain = {
 				rwave, rwave, rwave, rwave, rwave, 
 				rwave, rwave, rwave, rwave, rwave,
 				rwave, rwave, rwave, rwave, rwave,
 				rwave, rwave, rwave, rwave, rwave
 			};
-			
+
 			if (logging) log("read CV: start 20 power up resets");
 			gpioWrite(PROGENABLE, 1);
-			gpioWaveChain(schain, 20);
+			gpioWaveChain(schain.data(), schain.size());
 			while (gpioWaveTxBusy()) { currents.push_back(current); usleep(1000); }
 			gpioWrite(PROGENABLE, 0);
 			if (logging) log("read CV: 20 power up resets complete");
-			
+#endif
+
 			//calculate quiescent from the last 10 power-on current measurements:
 			float q = 0.0;
 			for (int i=currents.size()-sample_count; i<currents.size(); i++) {
-				printf ("%04.2f, ",currents[i]);
 				if (currents[i] > q) q = currents[i];
 			}
 			quiescent = q * quiescent_margin;
-			
-			if (log) printf("\n");
 
-			//walk through the values, stop when one renders a power count >= 5:
-			for (int i= 1; i <= 255; i++) {
-				DCCPacket p = DCCPacket::makeServiceModeDirectVerifyBytePacket(PROG1, PROG2, cv, (char) i); 
-				gpioWaveAddGeneric(p.getPulseTrain().size(), p.getPulseTrain().data());
-				char pwave = gpioWaveCreate();
-				char pchain[12] = {
-					//S-9.2.3: 3 resets:
-					rwave, rwave, rwave, 
-					//S-9.2.3: 5 writes:
-					pwave, pwave, pwave, pwave, pwave,
-					//S-9.2.3: 1 or more resets to cover ack period, if present:
-					rwave, rwave, rwave
-				};
-				
-				float max_current = 0.0;
-				int pwrcount = 0;
-				snprintf(msg, 256, "Read CV: start %d", i);
-				if (logging) log(msg);
-				gpioWrite(PROGENABLE, 1);
-				gpioWaveChain(pchain, 12);
-				while (gpioWaveTxBusy()) { 
-					float c = current;
-					if (c > quiescent) pwrcount++; 
-					if (c > max_current) max_current = c;
-					usleep(1000); 
+
+			//Using bit-verify to walk the bits of the CV, collecting the 1s and 0s
+			//First, start with bit 0, and do a verify on both 0 and 1.  If no ack
+			//is returned for both, then there's no locomotive on the programming track,
+			//or the connection is bad.  If '1' verify succeeds, set byte accumulator
+			//to 1, else if 0 succeeds, set byte accumulator to 0, then do the rest of 
+			//the bits.
+
+			unsigned char val;
+			//verify bit 0 by checking both for 1 and 0:
+			if (verifyBit(rwave, quiescent, cv, 0, 1)) {
+				val = 1;
+			}
+			else if (verifyBit(rwave, quiescent, cv, 0, 0)) {
+				val = 0;
+			}
+			else {
+				return "<Error: No locomotive found.>";
+			}
+
+			//the rest of the bits:
+			for (unsigned char i = 1; i < 8; i++) {
+				if (verifyBit(rwave, quiescent, cv, i, 1)) {
+					val = val | 1<<i; //if a 1 is found, else leave the bit alone (0)
 				}
-				gpioWrite(PROGENABLE, 0);
-				snprintf(msg, 256, "Read CV%d: finish %d", cv, i);
-				if (logging) log(msg);
-				gpioWaveDelete(pwave);
+			}
 
-				if (pwrcount >= power_count) {
-					snprintf(msg, 256, "CV%d=%d. quiescent: %04.2fma  pwrcount: %d (>%d) maxcurrent: %04.2fma\n", cv, i, quiescent, pwrcount, power_count, max_current);
-					if (logging) log(msg);
-					val = i;
-					break;
-				}
-			}	
-			gpioWaveDelete(rwave);
-#endif
-
-*/
 			vc.lock();
 			millisec = MILLISEC_INTERVAL;  //put the current monitor interval back to normal
 			vc.unlock();
+#ifdef USE_PIGPIOD_IF
+			wave_clear(pigpio_id);
+#else
+			gpioWaveClear();
+#endif
+
+			//printf("CV%d = %d\n",cv, val); //debug
+
 			if (cmdstring.size() == 4) 
-				response << "<r " << cb << "|" << cbsub << "|" << val << ">";
+				response << "<r " << cb << "|" << cbsub << "|" << (int) val << ">";
 			else if (cmdstring.size() == 2 | cmdstring.size() == 3)
-				 response << "<r CV" << cv << "=" << val << ">";
+				 response << "<r CV" << cv << "=" << (int) val << ">";
 
 		}
 		else response << "<Error: can't program in ops mode.>";
