@@ -1010,7 +1010,7 @@ std::string dccCommand(std::string cmd)
 			DCCPacket r = DCCPacket::makeBaselineResetPacket(PROG1, PROG2);
 			DCCPacket p;
 			
-			int val = -1;  //error, if it's not populated below
+			//int val = -1;  //error, if it's not populated below
 			vc.lock();
 			millisec = 1;  //throttle up the current monitor to support the ack resolution
 			vc.unlock();
@@ -1044,21 +1044,141 @@ std::string dccCommand(std::string cmd)
 			for (int i=currents.size()-sample_count; i<currents.size(); i++) {
 				if (currents[i] > q) q = currents[i];
 			}
-			
-/*Not yet ready for prime-time:
-			//if quiescent roughly equals the initial current measurement, then there's no locomotive to read:
-			if (log) printf("q: %04.2f currents[0]w/margin: %04.2f\n",q, currents[0] * 1.05);
-			if (q <= currents[0] * 1.05) {
-				if (cmdstring.size() == 4) 
-					response << "<r " << cb << "|" << cbsub << "|" << -1 << ">";
-				else if (cmdstring.size() == 2 | cmdstring.size() == 3)
-					response << "<r CV" << cv << "=" << -1 << ">";
-
-				return response.str();
-			}
-*/			
+				
 			quiescent = q * quiescent_margin;
 			
+			
+			
+			//Using bit-verify to walk the bits of the CV, collecting the 1s and 0s
+			//First, start with bit 0, and do a verify on both 0 and 1.  If no ack
+			//is returned for both, then there's no locomotive on the programming track,
+			//or the connection is bad.  If '1' verify succeeds, set byte accumulator
+			//to 1, else if 0 succeeds, do the rest of the bits, else return -1
+			
+			unsigned char val;
+			
+			//look for 1 in bitposition 0
+			p = DCCPacket::makeServiceModeDirectVerifyBitPacket(PROG1, PROG2, cv, 0, 1);			
+			wave_add_generic(pigpio_id, p.getPulseTrain().size(), p.getPulseTrain().data());
+			char pwave = wave_create(pigpio_id);
+			char pchain[12] = {
+				//S-9.2.3: 3 resets:
+				rwave, rwave, rwave, rwave,
+				//S-9.2.3: 5 writes:
+				pwave, pwave, pwave, pwave, pwave,
+				//S-9.2.3: 1 or more resets to cover ack period, if present:
+				rwave, rwave, rwave
+			};
+				
+			float max_current = 0.0;
+			int pwrcount = 0;
+			snprintf(msg, 256, "Read bit 0 = 1");
+			if (logging) log(msg);
+			gpio_write(pigpio_id, PROGENABLE, 1); 
+			wave_chain(pigpio_id, pchain, 12);
+			while (wave_tx_busy(pigpio_id)) { 
+				float c = current;
+				if (c > quiescent) pwrcount++; 
+				if (c > max_current) max_current = c;
+				usleep(1000); 
+			}
+			gpio_write(pigpio_id, PROGENABLE, 0);
+			
+			if (pwrcount >= power_count) {
+				//snprintf(msg, 256, "CV%d=%d. quiescent: %04.2fma  pwrcount: %d (>%d) maxcurrent: %04.2fma", cv, i, quiescent, pwrcount, power_count, max_current);
+				snprintf(msg, 256, "found 1 in bit position 0");
+				if (logging) log(msg);
+				val = 1;
+			}
+			else {
+				//look for 0 in bitposition 0
+				
+				//if that succeeds, go on to do the rest
+				//else set response to -1, no locomotive was found
+				p = DCCPacket::makeServiceModeDirectVerifyBitPacket(PROG1, PROG2, cv, 0, 0);			
+				wave_add_generic(pigpio_id, p.getPulseTrain().size(), p.getPulseTrain().data());
+				char pwave = wave_create(pigpio_id);
+				char pchain[12] = {
+					//S-9.2.3: 3 resets:
+					rwave, rwave, rwave, rwave,
+					//S-9.2.3: 5 writes:
+					pwave, pwave, pwave, pwave, pwave,
+					//S-9.2.3: 1 or more resets to cover ack period, if present:
+					rwave, rwave, rwave
+				};
+				
+				float max_current = 0.0;
+				int pwrcount = 0;
+				snprintf(msg, 256, "Read bit 0 = 1");
+				if (logging) log(msg);
+				gpio_write(pigpio_id, PROGENABLE, 1); 
+				wave_chain(pigpio_id, pchain, 12);
+				while (wave_tx_busy(pigpio_id)) { 
+					float c = current;
+					if (c > quiescent) pwrcount++; 
+					if (c > max_current) max_current = c;
+					usleep(1000); 
+				}	
+				gpio_write(pigpio_id, PROGENABLE, 0);
+				
+				if (pwrcount >= power_count) {
+					//snprintf(msg, 256, "CV%d=%d. quiescent: %04.2fma  pwrcount: %d (>%d) maxcurrent: %04.2fma", cv, i, quiescent, pwrcount, power_count, max_current);
+					snprintf(msg, 256, "found 0 in bit position 0");
+					if (logging) log(msg);
+					val = 0;
+				}
+				else {
+					//return response = -1  //exit dccCommand();
+					if (cmdstring.size() == 4) 
+						response << "<r " << cb << "|" << cbsub << "|" << -1 << ">";
+					else if (cmdstring.size() == 2 | cmdstring.size() == 3)
+						response << "<r CV" << cv << "=" << -1 << ">";
+					return response.str();
+				}
+				
+				//if got this far, got at least 1 ack for finding bit 0, and val = the found bit in 0
+				//loop through remaining bits, storing 1s to val with val | 1<<i
+				
+				for (unsigned i = 1; i < 8; i++) {
+					p = DCCPacket::makeServiceModeDirectVerifyBitPacket(PROG1, PROG2, cv, 1, 1);			
+					wave_add_generic(pigpio_id, p.getPulseTrain().size(), p.getPulseTrain().data());
+					char pwave = wave_create(pigpio_id);
+					char pchain[12] = {
+						//S-9.2.3: 3 resets:
+						rwave, rwave, rwave, rwave,
+						//S-9.2.3: 5 writes:
+						pwave, pwave, pwave, pwave, pwave,
+						//S-9.2.3: 1 or more resets to cover ack period, if present:
+						rwave, rwave, rwave
+					};
+				
+					float max_current = 0.0;
+					int pwrcount = 0;
+					snprintf(msg, 256, "Read bit 0 = 1");
+					if (logging) log(msg);
+					gpio_write(pigpio_id, PROGENABLE, 1); 
+					wave_chain(pigpio_id, pchain, 12);
+					while (wave_tx_busy(pigpio_id)) { 
+						float c = current;
+						if (c > quiescent) pwrcount++; 
+						if (c > max_current) max_current = c;
+						usleep(1000); 
+					}	
+					gpio_write(pigpio_id, PROGENABLE, 0);
+					
+					if (pwrcount >= power_count) {
+						snprintf(msg, 256, "found 1 in bit position %d", i);
+						if (logging) log(msg);
+						val = val | 1<<i; //if a 1 is found, else leave the bit alone (0)
+					}
+				}
+			}
+				
+#else
+#endif
+			
+			
+/*
 			//walk through the values, stop when one renders a power count >= 5:
 			for (int i= 1; i <= 255; i++) {
 				DCCPacket p = DCCPacket::makeServiceModeDirectVerifyBytePacket(PROG1, PROG2, cv, (char) i); 
@@ -1170,6 +1290,8 @@ std::string dccCommand(std::string cmd)
 			}	
 			gpioWaveDelete(rwave);
 #endif
+
+*/
 			vc.lock();
 			millisec = MILLISEC_INTERVAL;  //put the current monitor interval back to normal
 			vc.unlock();
@@ -1181,7 +1303,6 @@ std::string dccCommand(std::string cmd)
 		}
 		else response << "<Error: can't program in ops mode.>";
 	}
-
 
 
 	//RETURNS: Track power status, Version, Microcontroller type, Motor Shield type, build number, and then any defined turnouts, outputs, or sensors.
