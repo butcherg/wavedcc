@@ -640,19 +640,23 @@ bool verifyBit(char rwave, float quiescent, unsigned cv, unsigned char bitpos, u
 	gpioWrite(PROGENABLE, 0);
 #endif
 
-	//count back from the end of sampling sample_count samples, find current measurements > quiescent + 60ma
-	//for (int i=currents.size()-sample_count; i<currents.size(); i++) {
-	//	if (currents[i] > quiescent + ack_limit) pwrcount++; //S-9.2.3 60.0ma
-	//}
-	
-	//count back from the end of sampling sample_count samples, find current measurements > quiescent + 60ma
 	float maxack = 0.0;
-	for (int i=0; i<currents.size(); i++) {
+
+	//count back from the end of sampling sample_count samples, find current measurements > quiescent + 60ma
+	for (int i=currents.size()-sample_count; i<currents.size(); i++) {
 		if (currents[i] > quiescent + ack_limit) {
 			pwrcount++; //S-9.2.3 60.0ma
 			maxack = currents[i];
 		}
 	}
+	
+	//count back from the end of sampling sample_count samples, find current measurements > quiescent + 60ma
+	//for (int i=0; i<currents.size(); i++) {
+	//	if (currents[i] > quiescent + ack_limit) {
+	//		pwrcount++; //S-9.2.3 60.0ma
+	//		maxack = currents[i];
+	//	}
+	//}
 
 	if (pwrcount >= ack_min) { //S-9.2.3 6ms +/- 1ms
 		snprintf(msg, 256, "CV%d found %d in bit position %d (max=%04.2f, pc=%d)", cv, val, bitpos, maxack, pwrcount);
@@ -708,19 +712,24 @@ bool verifyByte(char rwave, float quiescent, unsigned cv, unsigned char val)
 	gpioWrite(PROGENABLE, 0);
 #endif
 
-	//count back from the end of sampling sample_count samples, find current measurements > quiescent + 60ma
-	//for (int i=currents.size()-sample_count; i<currents.size(); i++) {
-	//	if (currents[i] > quiescent + ack_limit) pwrcount++; //S-9.2.3 60.0ma
-	//}
-	
-	//count back from the end of sampling sample_count samples, find current measurements > quiescent + 60ma
 	float maxack = 0.0;
-	for (int i=0; i<currents.size(); i++) {
+
+	//count back from the end of sampling sample_count samples, find current measurements > quiescent + 60ma
+	for (int i=currents.size()-sample_count; i<currents.size(); i++) {
 		if (currents[i] > quiescent + ack_limit) {
 			pwrcount++; //S-9.2.3 60.0ma
 			maxack = currents[i];
 		}
 	}
+	
+	
+	//count back from the end of sampling sample_count samples, find current measurements > quiescent + 60ma
+	//for (int i=0; i<currents.size(); i++) {
+	//	if (currents[i] > quiescent + ack_limit) {
+	//		pwrcount++; //S-9.2.3 60.0ma
+	//		maxack = currents[i];
+	//	}
+	//}
 
 	if (pwrcount >= ack_min) { //S-9.2.3 6ms +/- 1ms
 		snprintf(msg, 256, "CV%d = %d (max=%04.2f, pc=%d)", cv, val, maxack, pwrcount);
