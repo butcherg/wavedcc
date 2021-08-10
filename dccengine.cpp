@@ -694,7 +694,7 @@ bool verifyByte(char rwave, float quiescent, unsigned cv, unsigned char val)
 
 	float max_current = 0.0;
 	int pwrcount = 0;
-	snprintf(msg, 256, "Verify CV%d value %d = %d", cv, val);
+	snprintf(msg, 256, "Verify CV%d value %d", cv, val);
 	if (logging) log(msg);
 #ifdef USE_PIGPIOD_IF	
 	gpio_write(pigpio_id, PROGENABLE, 1); 
