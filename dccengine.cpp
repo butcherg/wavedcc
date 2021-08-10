@@ -322,9 +322,9 @@ int MAIN1, MAIN2, MAINENABLE;
 int PROG1, PROG2, PROGENABLE;
 
 //variables to control CV reading behavior:
-int sample_count = 10; //number of samples from the tail of the current measurment vector to use in determining quiescent
-float quiescent_margin = 1.1 ; //number by which to scale measured quiescent
-int power_count = 4; // number of current measurements > quiescent to count in determining an ack
+int sample_count = 10; //number of samples from the tail of the current measurment vector to use in determining quiescent current
+float ack_limit = 60.0; //milliamps over quiescent to determine an ack, per S-9.2.3 60ma. Changeable with 'acklimit' property in wavedcc.conf
+int ack_min = 5; // number of current measurements > quiescent + ack_limit to count in determining an ack, per S-9.2.5, 6ms +/- 1ms, so count >=5.  Changeable with 'ackmin' property in wavedcc.conf
 
 //overload threshold in milliamps:
 float overload_threshold = 3000.0;
@@ -546,8 +546,8 @@ std::string dccInit()
 	}
 
 	if (config.find("samplecount") != config.end()) sample_count = atoi(config["samplecount"].c_str());
-	if (config.find("quiescentmargin") != config.end()) quiescent_margin = atof(config["quiescentmargin"].c_str());
-	if (config.find("powercount") != config.end()) power_count = atoi(config["powercount"].c_str());
+	if (config.find("acklimit") != config.end()) ack_limit = atof(config["acklimit"].c_str());
+	if (config.find("ackmin") != config.end()) ack_min = atoi(config["ackmin"].c_str());
 	
 	if (config.find("overloadthreshold") != config.end()) overload_threshold = atof(config["overloadthreshold"].c_str());
 
@@ -621,12 +621,12 @@ bool verifyBit(char rwave, float quiescent, unsigned cv, unsigned char bitpos, u
 		//S-9.2.3: 5 writes:
 		pwave, pwave, pwave, pwave, pwave,
 		//S-9.2.3: 1 or more resets to cover ack period, if present:
-		rwave, rwave, rwave, rwave, rwave
+		rwave, rwave, rwave, rwave, rwave, rwave
 	};
 
 	float max_current = 0.0;
 	int pwrcount = 0;
-	snprintf(msg, 256, "Read CV%d bit %d = %d", cv, bitpos, val);
+	snprintf(msg, 256, "Verify CV%d bit %d = %d", cv, bitpos, val);
 	if (logging) log(msg);
 #ifdef USE_PIGPIOD_IF	
 	gpio_write(pigpio_id, PROGENABLE, 1); 
@@ -641,21 +641,100 @@ bool verifyBit(char rwave, float quiescent, unsigned cv, unsigned char bitpos, u
 #endif
 
 	//count back from the end of sampling sample_count samples, find current measurements > quiescent + 60ma
-	for (int i=currents.size()-sample_count; i<currents.size(); i++) {
-		if (currents[i] > quiescent + 60.0) pwrcount++; //S-9.2.3 60.0ma
+	//for (int i=currents.size()-sample_count; i<currents.size(); i++) {
+	//	if (currents[i] > quiescent + ack_limit) pwrcount++; //S-9.2.3 60.0ma
+	//}
+	
+	//count back from the end of sampling sample_count samples, find current measurements > quiescent + 60ma
+	float maxack = 0.0;
+	for (int i=0; i<currents.size(); i++) {
+		if (currents[i] > quiescent + ack_limit) {
+			pwrcount++; //S-9.2.3 60.0ma
+			maxack = currents[i];
+		}
 	}
 
-	if (pwrcount >= 5) { //S-9.2.3 6ms +/- 1ms
-		snprintf(msg, 256, "CV%d found %d in bit position %d", cv, val, bitpos);
+	if (pwrcount >= ack_min) { //S-9.2.3 6ms +/- 1ms
+		snprintf(msg, 256, "CV%d found %d in bit position %d (max=%04.2f, pc=%d)", cv, val, bitpos, maxack, pwrcount);
 		if (logging) log(msg);
 		val = 0;
 		return true;
 	}
-	snprintf(msg, 256, "CV%d did not find %d in bit position %d", cv, val, bitpos);
+
+	snprintf(msg, 256, "CV%d did not find %d in bit position %d (max=%04.2f, pc=%d)", cv, val, bitpos, maxack, pwrcount);
 	if (logging) log(msg);
 	return false;
 
 }
+
+//depends on the prior creation of rwave by the caller...
+bool verifyByte(char rwave, float quiescent, unsigned cv, unsigned char val)
+{
+	char msg[256];
+	std::vector<float> currents;
+
+	DCCPacket p = DCCPacket::makeServiceModeDirectVerifyBytePacket(PROG1, PROG2, cv, val);
+
+#ifdef USE_PIGPIOD_IF
+	wave_add_generic(pigpio_id, p.getPulseTrain().size(), p.getPulseTrain().data());	
+	char pwave = wave_create(pigpio_id);
+#else
+	gpioWaveAddGeneric(p.getPulseTrain().size(), p.getPulseTrain().data());
+	char pwave = gpioWaveCreate();
+#endif
+
+	std::vector<char> pchain = {
+		//S-9.2.3: 3 resets:
+		rwave, rwave, rwave,
+		//S-9.2.3: 5 writes:
+		pwave, pwave, pwave, pwave, pwave,
+		//S-9.2.3: 1 or more resets to cover ack period, if present:
+		rwave, rwave, rwave, rwave, rwave, rwave
+	};
+
+	float max_current = 0.0;
+	int pwrcount = 0;
+	snprintf(msg, 256, "Verify CV%d value %d = %d", cv, val);
+	if (logging) log(msg);
+#ifdef USE_PIGPIOD_IF	
+	gpio_write(pigpio_id, PROGENABLE, 1); 
+	wave_chain(pigpio_id, pchain.data(), pchain.size());
+	while (wave_tx_busy(pigpio_id)) { currents.push_back(current); usleep(1000); }
+	gpio_write(pigpio_id, PROGENABLE, 0);
+#else
+	gpioWrite(PROGENABLE, 1);
+	gpioWaveChain(pchain.data(), pchain.size());
+	while (gpioWaveTxBusy()) { currents.push_back(current); usleep(1000); }
+	gpioWrite(PROGENABLE, 0);
+#endif
+
+	//count back from the end of sampling sample_count samples, find current measurements > quiescent + 60ma
+	//for (int i=currents.size()-sample_count; i<currents.size(); i++) {
+	//	if (currents[i] > quiescent + ack_limit) pwrcount++; //S-9.2.3 60.0ma
+	//}
+	
+	//count back from the end of sampling sample_count samples, find current measurements > quiescent + 60ma
+	float maxack = 0.0;
+	for (int i=0; i<currents.size(); i++) {
+		if (currents[i] > quiescent + ack_limit) {
+			pwrcount++; //S-9.2.3 60.0ma
+			maxack = currents[i];
+		}
+	}
+
+	if (pwrcount >= ack_min) { //S-9.2.3 6ms +/- 1ms
+		snprintf(msg, 256, "CV%d = %d (max=%04.2f, pc=%d)", cv, val, maxack, pwrcount);
+		if (logging) log(msg);
+		val = 0;
+		return true;
+	}
+
+	snprintf(msg, 256, "CV%d != %d (max=%04.2f, pc=%d)", cv, val, maxack, pwrcount);
+	if (logging) log(msg);
+	return false;
+
+}
+
 
 //global, used to run a single engine with adr/+/-:
 //int address=0, speed=0, direction=1;
@@ -1105,7 +1184,8 @@ std::string dccCommand(std::string cmd)
 			wave_chain(pigpio_id, schain.data(), schain.size());
 			while (wave_tx_busy(pigpio_id)) { currents.push_back(current); usleep(1000); }
 			gpio_write(pigpio_id, PROGENABLE, 0);
-			if (logging) log("read CV: 20 power up resets complete");
+			
+			
 #else
 			gpioWaveClear();
 			gpioWaveAddGeneric(r.getPulseTrain().size(), r.getPulseTrain().data());
@@ -1124,15 +1204,20 @@ std::string dccCommand(std::string cmd)
 			gpioWaveChain(schain.data(), schain.size());
 			while (gpioWaveTxBusy()) { currents.push_back(current); usleep(1000); }
 			gpioWrite(PROGENABLE, 0);
-			if (logging) log("read CV: 20 power up resets complete");
 #endif
+
+			if (logging) log("read CV: 20 power up resets complete");
+			
 
 			//calculate quiescent from the last 10 power-on current measurements:
 			float q = 0.0;
 			for (int i=currents.size()-sample_count; i<currents.size(); i++) {
 				if (currents[i] > q) q = currents[i];
 			}
-			quiescent = q * quiescent_margin;
+			quiescent = q;
+			
+			snprintf(msg, 256, "read CV%d: quiescent=%04.2fma, acklimit=%04.4fma, ackmin=%d", cv, quiescent, ack_limit, ack_min);
+			if (logging) log(msg);
 
 
 			//Using bit-verify to walk the bits of the CV, collecting the 1s and 0s
@@ -1142,26 +1227,59 @@ std::string dccCommand(std::string cmd)
 			//to 1, else if 0 succeeds, set byte accumulator to 0, then do the rest of 
 			//the bits.
 
-			unsigned char val;
-			//verify bit 0 by checking both for 1 and 0:
-			if (verifyBit(rwave, quiescent, cv, 0, 1)) {
-				val = 1;
-			}
-			else if (verifyBit(rwave, quiescent, cv, 0, 0)) {
-				val = 0;
-			}
-			else {
-				return "<Error: No locomotive found.>";
-			}
+			unsigned val;
 
-			//the rest of the bits:
-			for (unsigned char i = 1; i < 8; i++) {
-				if (verifyBit(rwave, quiescent, cv, i, 1)) {
-					val = val | 1<<i; //if a 1 is found, else leave the bit alone (0)
+
+			//walk only 1-bits, verify byte; try up to four times:
+			int i;
+			for (i=1; i<=3; i++) {
+				//verify bit 0 by checking both for 1 and 0:
+				if (verifyBit(rwave, quiescent, cv, 0, 1)) {
+					val = 1;
 				}
+				else if (verifyBit(rwave, quiescent, cv, 0, 0)) {
+					val = 0;
+				}
+				else {
+					val = -1;
+					continue;
+				}
+
+				//the rest of the bits:
+				for (unsigned char i = 1; i < 8; i++) {
+					if (verifyBit(rwave, quiescent, cv, i, 1)) {
+						val = val | 1<<i; //if a 1 is found, else leave the bit alone (0)
+					}
+				}
+				if (verifyByte(rwave, quiescent, cv, val)) break;
 			}
+			if (i == 1)
+				snprintf(msg, 256, "read CV%d: %d attempt.", cv, i);
+			else
+				snprintf(msg, 256, "read CV%d: %d attempts.", cv, i);
+			if (logging) log(msg);
+
+
+/*			//walk both 1- and 0-bits:
+			for (unsigned char i = 0; i < 8; i++) {
+				bool foundone = verifyBit(rwave, quiescent, cv, i, 1);
+				bool foundzed = verifyBit(rwave, quiescent, cv, i, 0);
+				if (foundone & (!foundzed)) { 
+					val = val | 1<<i; // bit at pos is 1, set it in val 
+				} 
+				else if (foundone & foundzed) { 
+					val = -2; // strangeness... acklimit too low?
+					break; 
+				}
+				else if ((!foundone) & (!foundzed)) {
+					val = -1; // likely no locomotive or lost connection, maybe acklimit too high?
+					break; 
+				}
+				// else bit at pos is 0 (!foundone & foundzed), leave it alone in val, which was initialized to all 0...
+			}
+*/
 			
-			snprintf(msg, 256, "CV%d = %d", cv, val);
+			snprintf(msg, 256, "Result: CV%d = %d", cv, val);
 			if (logging) log(msg);			
 
 			vc.lock();
