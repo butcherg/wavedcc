@@ -1160,6 +1160,9 @@ std::string dccCommand(std::string cmd)
 					val = val | 1<<i; //if a 1 is found, else leave the bit alone (0)
 				}
 			}
+			
+			snprintf(msg, 256, "CV%d = %d", cv, val);
+			if (logging) log(msg);			
 
 			vc.lock();
 			millisec = MILLISEC_INTERVAL;  //put the current monitor interval back to normal
