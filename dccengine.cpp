@@ -347,8 +347,10 @@ int pigpio_id;
 //
 void runDCCCurrent()
 {
+	struct timeval tv1, tv2;
 	int overload_count = 0;
 	while (currenting) {
+		gettimeofday(&tv1, NULL);
 		vc.lock();
 		voltage = ina.get_voltage();
 		current = ina.get_current();
@@ -375,6 +377,9 @@ void runDCCCurrent()
 			else overload_count = 0;
 		}
 		if (logging) logcurrent(current, voltage);
+		gettimeofday(&tv2, NULL);
+		tv2.tv_sec -= tv1.tv_sec;  tv2.tv_usec -= tv1.tv_usec;
+		
 		usleep((int) (1000 * millisec));
 	}
 } 
@@ -1303,7 +1308,7 @@ std::string dccCommand(std::string cmd)
 			//printf("CV%d = %d\n",cv, val); //debug
 
 			if (cmdstring.size() == 4) 
-				response << "<r " << cb << "|" << cbsub << "|" << (int) val << ">";
+				response << "<r " << cb << "|" << cbsub << "|" << (int) cv << (int) val << ">";
 			else if (cmdstring.size() == 2 | cmdstring.size() == 3)
 				 response << "<r CV" << cv << "=" << (int) val << ">";
 
