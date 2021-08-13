@@ -1308,7 +1308,7 @@ std::string dccCommand(std::string cmd)
 			//printf("CV%d = %d\n",cv, val); //debug
 
 			if (cmdstring.size() == 4) 
-				response << "<r " << cb << "|" << cbsub << "|" << (int) cv << (int) val << ">";
+				response << "<r " << cb << "|" << cbsub << "|" << (int) cv << " " << (int) val << ">";
 			else if (cmdstring.size() == 2 | cmdstring.size() == 3)
 				 response << "<r CV" << cv << "=" << (int) val << ">";
 
