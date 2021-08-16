@@ -49,7 +49,9 @@
 //wavedccd-specific:
 #include <string>
 #include "dccengine.h"
-
+#include <signal.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #define PORT "9034"   // Port we're listening on
 
@@ -139,9 +141,44 @@ void del_from_pfds(struct pollfd pfds[], int i, int *fd_count)
     (*fd_count)--;
 }
 
-// Main
-int main(void)
+//added for wavedccd():
+void daemonize()
 {
+	int i;
+	i=fork();
+	if (i<0) exit(1); /* fork error */
+	if (i>0) exit(0); /* parent exits */
+    
+	setsid();
+	for (i=getdtablesize();i>=0;--i) close(i); /* close all descriptors */
+	i=open("/dev/null",O_RDWR); /* open stdin */
+	int j = dup(i); /* stdout */
+	int k = dup(i); /* stderr */
+	umask(027);
+    
+	signal(SIGCHLD,SIG_IGN); /* ignore child */
+	signal(SIGTSTP,SIG_IGN); /* ignore tty signals */
+	signal(SIGTTOU,SIG_IGN);
+	signal(SIGTTIN,SIG_IGN);
+}
+
+
+// Main
+int main(int argc, char **argv)
+{
+	bool daemon = false;
+	int opt;
+    
+	while ((opt = getopt(argc, argv, "d")) != -1) {
+		switch (opt) {
+			case 'd':
+				daemon = true;
+				break;
+		}
+	}
+               
+	if (daemon) daemonize();
+
     std::string initresult = dccInit();
     if (initresult.find("Error") != std::string::npos) {
     	printf("%s\n",initresult.c_str());
