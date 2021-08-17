@@ -15,7 +15,7 @@ sudo apt install libpigpio-dev libpigpiod-if-dev pigpiod cmake
 ```
 $ mkdir build
 $ cd build
-$ cmake ..
+$ cmake -DUSE_PIGPIO=ON ..
 $ make
 ```
 ### GPIO access through pigpiod:
@@ -25,7 +25,9 @@ $ cd build
 $ cmake -DUSE_PIGPIOD_IF=ON ..
 $ make
 ```
-The major differences between direct GPIO access pigpiod GPIO access, besides having to run the programs as root for direct access, is the CPU loading; on my RPi 3B+, direct uses about 12%, pigpiod access uses about 40%, split between pigpiod and wavedcc(d).
+If you don't specify a -D option, cmake will configure the USE_PIGPIOD_IF option.
+
+The major differences between direct GPIO access and pigpiod GPIO access, besides having to run the programs as root for direct access, is the CPU loading; on my RPi 3B+, direct uses about 12%, pigpiod access uses about 40%, split between pigpiod and wavedcc(d).
 
 ## Running wavedcc(d)
 
@@ -41,6 +43,19 @@ wavedcc is a command-line program that accepts DCC++ style commands, either enca
 
 wavedccd is a TCP server that listens for connections on port 9034.  wavedccd emulates DCC++ EX, JMRI can be set up to communicate with wavedccd by setting up a DCC++ connection to the apporpriate host and port.
 
+## Hardware
+
+wavedcc will drive a bipolar H-bridge with the GPIOs identified with the main1/main2 properties in wavedcc.conf.  If the H-bridge also has an enable input, that can be driven with the GPIO identified by mainenable.  The service mode commands have separate prog1/prog2/progenable properties.
+
+I've tested wavedcc with the generic L298n motor driver board available a lot of places.  Here's a current Amazon link (as of 8/17/2021): https://www.amazon.com/Controller-H-Bridge-Stepper-Control-Mega2560/dp/B07WS89781/. If you just want to mess with ops mode, use this with a relatively low amperage 12-15v power supply and take care to avoid short circuits.  However, for safety as well as doing CV reads, current sensing is recommended.  wavedcc currently is only configured to read I2C current-sense devices, and the only one I've tested is the Adafruit INA219 board.  I've looked at the datasheet for their INA260 board, and it looks like it would require changing the register numbers in ina219.h, as well as commenting out the configuration/calibration lines, so very much YMMV.
+
+Here's a picture of my configuration:
+
+![wavedcc hardware](https://github.com/butcherg/wavedcc/blob/main/DSZ_8768.jpg)
+
+I use breadboard jumpers throughout.  There are two groups of jumpers 1) GPIO17/27/22 to L298n IN1a/IN1b/INEnable, along with a ground connection from PRi pin 9 to the L298n ground, and 2) from the RPi channel 1 I2c at GPIO2/3 to the Qwiik connector, also using pins 1 and 6 for 3v/GND.  For the power through the INA219, + goes to V+, and the load is connected to V-.  I chose to measure the current before the motor driver for connection simplicity, and wavedcc measures the total current prior to an ack pulse to detect acks.  My L298n draws about 145ma, and a HOn3 K-27 with a Soundtraxx Tsnuami decoder adds about 500ma to that.
+
+
 ## Limitations
 
 The most significant limitation is that wavedcc and wavedccd will only run one DCC mode at a time, ops or service.  This is a limitation of pigpio waveforms, which will only accommodate one pulse train at a time.  This is not likely to change, as it would require a significant redesign of wavedcc to multiplex waveforms.
@@ -51,8 +66,6 @@ The following limitations are just a function of the state of wavedcc developmen
 
 - Only functions 1-12 are implemented.
 - Consist control is not implemented.
-- CV reading is not implemented, but it's the next capability to be developed.
-- Measuring and reporting current draw is not implemented, but will be implemented along with CV reading.
 - DCC accessory packets are not implemented.
 - DCC++ sensors and outputs (RPi GPIOs) are not implemented.
 
