@@ -35,9 +35,11 @@ If the GPIO access through pigpiod was compiled, make sure pigpiod is running.  
 ```
 $ sudo systemctl start pigpiod
 ```
-Then, either program can be run from the command line as the regular user.  If the direct GPIO access was compiled, wavedcc and wavedccd must be run as root, and pigpiod cannot be running.
+Then, either program can be run from the command line as the regular user.  
 
-Both wavedcc and wavedccd use GPIO 2 and 3 by default for the DCC signal modulation (MAIN1 and MAIN2) and GPIO 4 for MAINENABLE; it's recommended to use a wavedcc.conf file residing in the same directory as the executables to set these properties to the GPIOs you prefer.  The corresponding properies for service mode are PROG1, PROG2, and PROGENABLE.  Both programs if, compiled with -DUSE_PIGPIOD_IF=ON, will by default attempt to connect to a pigpiod at localhost using port 8888; these can be changed in the wavedcc.conf file with HOST and PORT properties.
+If the direct GPIO access version of wavedcc was compiled, wavedcc and wavedccd must be run as root, and pigpiod cannot be running.
+
+Both wavedcc and wavedccd use GPIO 2 and 3 by default for the DCC signal modulation (main1 and main2 in wavedcc.conf) and GPIO 4 for mainenable; it's recommended to use a wavedcc.conf file residing in the same directory as the executables to set these properties to the GPIOs you prefer.  The corresponding properies for service mode are prog1, prog2, and progenable.  Both programs if, compiled with -DUSE_PIGPIOD_IF=ON, will by default attempt to connect to a pigpiod at localhost using port 8888; these can be changed in the wavedcc.conf file with host and port properties.
 
 wavedcc is a command-line program that accepts DCC++ style commands, either encased in the < > or without, e.g., t 3 1 1.  It can be exited with Ctrl-c or 'exit'.
 
@@ -53,7 +55,12 @@ Here's a picture of my configuration:
 
 ![wavedcc hardware](https://github.com/butcherg/wavedcc/blob/main/DSZ_8768.jpg)
 
-I use breadboard jumpers throughout.  There are two groups of jumpers 1) GPIO17/27/22 to L298n IN1a/IN1b/INEnable, along with a ground connection from PRi pin 9 to the L298n ground, and 2) from the RPi channel 1 I2c at GPIO2/3 to the Qwiik connector, also using pins 1 and 6 for 3v/GND.  For the power through the INA219, + goes to V+, and the load is connected to V-.  I chose to measure the current before the motor driver for connection simplicity, and wavedcc measures the total current prior to an ack pulse to detect acks.  My L298n draws about 145ma, and a HOn3 K-27 with a Soundtraxx Tsnuami decoder adds about 500ma to that.
+I use breadboard jumpers throughout.  There are two groups of jumpers:
+
+1. GPIO17/27/22 to L298n IN1a/IN1b/INEnable, along with a ground connection from PRi pin 9 to the L298n ground,
+2. From the RPi channel 1 I2c at GPIO2/3 to the Qwiik connector, also using pins 1 and 6 for 3v/GND.  
+
+For the power through the INA219, power + goes to V+, and the V- goes to load +.  I chose to measure the current before the motor driver for connection simplicity, and wavedcc measures the total current prior to an ack pulse to detect acks.  My L298n draws about 145ma, and a HOn3 K-27 with a Soundtraxx Tsnuami decoder adds about 500ma to that.
 
 
 ## Limitations
@@ -72,5 +79,7 @@ The following limitations are just a function of the state of wavedcc developmen
 ## License
 
 All code in this repository is Copyright 2021 by Glenn Butcher, all rights reserved.  However, I sanction its use under the terms of the GPL 3.0 License.
+
+There's an exception, for pigpio_errors.h.  It's really just a reorganization of the libpigpio error constants into a table, along with their explanatory prose, and a lookup function for the table.  In the spirit of the libpigpio project, I release that file into the public domain.
 
 Have Fun!
