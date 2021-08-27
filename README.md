@@ -80,6 +80,9 @@ The following limitations are just a function of the state of wavedcc developmen
 
 All code in this repository is Copyright 2021 by Glenn Butcher, all rights reserved.  However, I sanction its use under the terms of the GPL 3.0 License.
 
-There's an exception, for pigpio_errors.h.  It's really just a reorganization of the libpigpio error constants into a table, along with their explanatory prose, and a lookup function for the table.  In the spirit of the libpigpio project, I release that file into the public domain.
+There are two exceptions:
+
+1. wavedccd.cpp. I used  https://beej.us/guide/bgnet/examples/pollserver.c, which was released to the public domain by Brian “Beej Jorgensen” Hall.  I added a few lines to do the wavedcc thing; those carry the GPL 3.0 license carried by the rest of my code. 
+2. pigpio_errors.h.  It's really just a reorganization of the libpigpio error constants into a table, along with their explanatory prose, and a lookup function for the table.  In the spirit of the libpigpio project, I release that file into the public domain.
 
 Have Fun!
