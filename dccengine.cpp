@@ -347,7 +347,9 @@ int pigpio_id;
 //
 void runDCCCurrent()
 {
+	char buf[256];
 	struct timeval tv1, tv2;
+	int dutycycle;
 	int overload_count = 0;
 	while (currenting) {
 		gettimeofday(&tv1, NULL);
@@ -376,11 +378,17 @@ void runDCCCurrent()
 			}
 			else overload_count = 0;
 		}
-		if (logging) logcurrent(current, voltage);
+		//if (logging) logcurrent(current, voltage);
 		gettimeofday(&tv2, NULL);
-		tv2.tv_sec -= tv1.tv_sec;  tv2.tv_usec -= tv1.tv_usec;
+		dutycycle = ((tv2.tv_sec - tv1.tv_sec) * 1000000) + (tv2.tv_usec - tv1.tv_usec);
+		snprintf ( buf, 256, "current=%04.2f,voltage=%04.2f,duty_cycle=%dus", current, voltage, dutycycle );
+		if (logging) log(buf); 
 		
-		usleep((int) (1000 * millisec));
+		if (millisec > 2) // use the duty cycle to calculate a proper interval
+			usleep((int) ((1000 * millisec) - dutycycle));
+		else	// just sleep the millisec interval above the duty cycle, 
+			//usleep((int) (1000 * millisec));
+			usleep((int) (1000 * 2));
 	}
 } 
 
