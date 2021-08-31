@@ -251,12 +251,24 @@ public:
 	std::string uptimes()
 	{
 		std::stringstream l;
-		l << "roster: " << std::endl;
+		l << "uptimes (sec): " << std::endl;
 		for (std::map<unsigned, roster_item>::iterator it = rr.begin(); it != rr.end(); ++it)
-			l << it->first << ": " << (it->second).uptime << std::endl;
+			//l << it->first << ": " << (it->second).uptime << std::endl;
+			l << it->first << ":" << ((it->second).uptime / 1000000) << std::endl;
 		if (rr.size() == 0)
 			l <<  "No entries." << std::endl;
 		return l.str();
+	}
+	
+	void writeAndResetUptimes(std::string filename)
+	{
+		std::ofstream uptimefile;
+		uptimefile.open(filename);
+		for (std::map<unsigned, roster_item>::iterator it = rr.begin(); it != rr.end(); ++it) {
+			uptimefile << it->first << ":" << ((it->second).uptime / 1000000) << std::endl;
+			it->second.uptime = 0;
+		}
+		uptimefile.close();
 	}
 
 private:
@@ -357,6 +369,12 @@ bool overload_trip = false;
 //for runDCC() engine and runDCCCurrent() current monitoring threads:
 std::thread *t = NULL;
 std::thread *c = NULL;
+
+//file path in which to store uptime files:
+std::string uptimefilepath = "./";
+
+//boolean to be set by the property 'uptimelogging':
+bool uptimelogging = false;
 
 #ifdef USE_PIGPIOD_IF
 //pigpiod_id hold the identifier returned at initialization, needed by all pigpiod function calls
@@ -531,6 +549,9 @@ void signal_handler(int signum) {
 	exit(1);
 }
 
+
+//uptimefilepath
+//uptimelogging
 std::string dccInit()
 {
 	MAIN1=17;
@@ -573,6 +594,12 @@ std::string dccInit()
 		logging = true;
 		}
 	}
+	
+	if (config.find("uptimelogging") != config.end())
+		if (config["uptimelogging"] == "1")
+			uptimelogging = true;
+	if (config.find("uptimefilepath") != config.end())
+		uptimefilepath = config["uptimefilepath"];
 
 	if (config.find("samplecount") != config.end()) sample_count = atoi(config["samplecount"].c_str());
 	if (config.find("acklimit") != config.end()) ack_limit = atof(config["acklimit"].c_str());
@@ -902,7 +929,17 @@ std::string dccCommand(std::string cmd)
 					millisec = MILLISEC_INTERVAL;
 					vc.unlock();
 					response <<  "<p0 MAIN>\n";
-					std::cout << roster.uptimes() << std::endl;
+					
+					if (uptimelogging) {
+						char fname[256];
+						time_t rawtime;
+						struct tm *ftime;
+						time( &rawtime );
+						ftime = localtime( &rawtime );
+						strftime(fname,256,"%Y-%m-%d_%H:%M:%S.txt", ftime);
+						roster.writeAndResetUptimes(uptimefilepath+std::string(fname));
+					}
+					
 				}
 			}
 			else if (cmdstring[1] == "PROG") {
@@ -937,7 +974,17 @@ std::string dccCommand(std::string cmd)
 					t = NULL;
 				}
 				response <<  "<p0>\n";
-				std::cout << roster.uptimes() << std::endl;
+
+				if (uptimelogging) {
+					char fname[256];
+					time_t rawtime;
+					struct tm *ftime;
+					time( &rawtime );
+					ftime = localtime( &rawtime );
+					strftime(fname,256,"%Y-%m-%d_%H:%M:%S.txt", ftime);
+					roster.writeAndResetUptimes(uptimefilepath+std::string(fname));
+				}
+				
 			}
 			else if (programming) {
 				programming = false;
