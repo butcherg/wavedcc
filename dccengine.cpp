@@ -60,13 +60,13 @@ long timestamp()
 	//return tv.tv_usec / 1000000 + tv.tv_sec;
 	return tv.tv_sec * 1000000 + tv.tv_usec;
 }
+*/
 
 uint64_t timestamp() {
     struct timeval tv;
     gettimeofday(&tv,NULL);
     return tv.tv_sec*(uint64_t)1000000+tv.tv_usec;
 }
-*/
 
 void loginit()
 {
@@ -149,6 +149,8 @@ struct roster_item {
 	unsigned direction;
 	unsigned headlight;
 	unsigned fgroup1, fgroup2, fgroup3;
+	long tstamp;	// uptime calculation
+	int uptime;	// uptime accumulator
 };
 
 class Roster
@@ -164,7 +166,7 @@ public:
 	
 	roster_item get(unsigned address)
 	{
-		if (rr.find(address) == rr.end()) rr[address] = roster_item{ address, 0, 0, 0, 128, 176, 160}; 
+		if (rr.find(address) == rr.end()) rr[address] = roster_item{ address, 0, 0, 0, 128, 176, 160, 0, 0}; 
 		return rr[address];
 	}
 	
@@ -186,8 +188,19 @@ public:
 	
 	void update(unsigned address, unsigned speed, unsigned direction, unsigned headlight)
 	{
+		long tstamp = timestamp();
 		m.lock();
-		if (rr.find(address) == rr.end()) rr[address] = roster_item{ address, 0, 0, 0, 128, 176, 160}; 
+		if (rr.find(address) == rr.end()) rr[address] = roster_item{ address, 0, 0, 0, 128, 176, 160, tstamp, 0}; 
+		if (rr[address].speed == 0 & speed > 0) { // starting up, just record the timestamp
+			rr[address].tstamp = tstamp;
+		}
+		else if (rr[address].speed > 0 & speed > 0) { // in motion, update uptime and timestamp
+			rr[address].uptime += tstamp - rr[address].tstamp;
+			rr[address].tstamp = tstamp;
+		}
+		else if (rr[address].speed > 0 & speed == 0) { // stopping, just update the uptime
+			rr[address].uptime += tstamp - rr[address].tstamp;
+		}
 		rr[address].speed = speed;
 		rr[address].direction = direction;
 		rr[address].headlight = headlight;
@@ -230,6 +243,17 @@ public:
 		l << "roster: " << std::endl;
 		for (std::map<unsigned, roster_item>::iterator it = rr.begin(); it != rr.end(); ++it)
 			l << it->first << ": " << (it->second).speed << " " << (it->second).direction << std::endl;
+		if (rr.size() == 0)
+			l <<  "No entries." << std::endl;
+		return l.str();
+	}
+	
+	std::string uptimes()
+	{
+		std::stringstream l;
+		l << "roster: " << std::endl;
+		for (std::map<unsigned, roster_item>::iterator it = rr.begin(); it != rr.end(); ++it)
+			l << it->first << ": " << (it->second).uptime << std::endl;
 		if (rr.size() == 0)
 			l <<  "No entries." << std::endl;
 		return l.str();
@@ -878,6 +902,7 @@ std::string dccCommand(std::string cmd)
 					millisec = MILLISEC_INTERVAL;
 					vc.unlock();
 					response <<  "<p0 MAIN>\n";
+					std::cout << roster.uptimes() << std::endl;
 				}
 			}
 			else if (cmdstring[1] == "PROG") {
@@ -912,6 +937,7 @@ std::string dccCommand(std::string cmd)
 					t = NULL;
 				}
 				response <<  "<p0>\n";
+				std::cout << roster.uptimes() << std::endl;
 			}
 			else if (programming) {
 				programming = false;
