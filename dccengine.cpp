@@ -60,13 +60,13 @@ long timestamp()
 	//return tv.tv_usec / 1000000 + tv.tv_sec;
 	return tv.tv_sec * 1000000 + tv.tv_usec;
 }
+*/
 
 uint64_t timestamp() {
     struct timeval tv;
     gettimeofday(&tv,NULL);
     return tv.tv_sec*(uint64_t)1000000+tv.tv_usec;
 }
-*/
 
 void loginit()
 {
@@ -149,6 +149,8 @@ struct roster_item {
 	unsigned direction;
 	unsigned headlight;
 	unsigned fgroup1, fgroup2, fgroup3;
+	long tstamp;	// uptime calculation
+	int uptime;	// uptime accumulator
 };
 
 class Roster
@@ -164,7 +166,7 @@ public:
 	
 	roster_item get(unsigned address)
 	{
-		if (rr.find(address) == rr.end()) rr[address] = roster_item{ address, 0, 0, 0, 128, 176, 160}; 
+		if (rr.find(address) == rr.end()) rr[address] = roster_item{ address, 0, 0, 0, 128, 176, 160, 0, 0}; 
 		return rr[address];
 	}
 	
@@ -186,8 +188,19 @@ public:
 	
 	void update(unsigned address, unsigned speed, unsigned direction, unsigned headlight)
 	{
+		long tstamp = timestamp();
 		m.lock();
-		if (rr.find(address) == rr.end()) rr[address] = roster_item{ address, 0, 0, 0, 128, 176, 160}; 
+		if (rr.find(address) == rr.end()) rr[address] = roster_item{ address, 0, 0, 0, 128, 176, 160, tstamp, 0}; 
+		if (rr[address].speed == 0 & speed > 0) { // starting up, just record the timestamp
+			rr[address].tstamp = tstamp;
+		}
+		else if (rr[address].speed > 0 & speed > 0) { // in motion, update uptime and timestamp
+			rr[address].uptime += tstamp - rr[address].tstamp;
+			rr[address].tstamp = tstamp;
+		}
+		else if (rr[address].speed > 0 & speed == 0) { // stopping, just update the uptime
+			rr[address].uptime += tstamp - rr[address].tstamp;
+		}
 		rr[address].speed = speed;
 		rr[address].direction = direction;
 		rr[address].headlight = headlight;
@@ -233,6 +246,29 @@ public:
 		if (rr.size() == 0)
 			l <<  "No entries." << std::endl;
 		return l.str();
+	}
+	
+	std::string uptimes()
+	{
+		std::stringstream l;
+		l << "uptimes (sec): " << std::endl;
+		for (std::map<unsigned, roster_item>::iterator it = rr.begin(); it != rr.end(); ++it)
+			//l << it->first << ": " << (it->second).uptime << std::endl;
+			l << it->first << ":" << ((it->second).uptime / 1000000) << std::endl;
+		if (rr.size() == 0)
+			l <<  "No entries." << std::endl;
+		return l.str();
+	}
+	
+	void writeAndResetUptimes(std::string filename)
+	{
+		std::ofstream uptimefile;
+		uptimefile.open(filename);
+		for (std::map<unsigned, roster_item>::iterator it = rr.begin(); it != rr.end(); ++it) {
+			uptimefile << it->first << ":" << ((it->second).uptime / 1000000) << std::endl;
+			it->second.uptime = 0;
+		}
+		uptimefile.close();
 	}
 
 private:
@@ -333,6 +369,12 @@ bool overload_trip = false;
 //for runDCC() engine and runDCCCurrent() current monitoring threads:
 std::thread *t = NULL;
 std::thread *c = NULL;
+
+//file path in which to store uptime files:
+std::string uptimefilepath = "./";
+
+//boolean to be set by the property 'uptimelogging':
+bool uptimelogging = false;
 
 #ifdef USE_PIGPIOD_IF
 //pigpiod_id hold the identifier returned at initialization, needed by all pigpiod function calls
@@ -515,6 +557,9 @@ void signal_handler(int signum) {
 	exit(1);
 }
 
+
+//uptimefilepath
+//uptimelogging
 std::string dccInit()
 {
 	MAIN1=17;
@@ -557,6 +602,12 @@ std::string dccInit()
 		logging = true;
 		}
 	}
+	
+	if (config.find("uptimelogging") != config.end())
+		if (config["uptimelogging"] == "1")
+			uptimelogging = true;
+	if (config.find("uptimefilepath") != config.end())
+		uptimefilepath = config["uptimefilepath"];
 
 	if (config.find("samplecount") != config.end()) sample_count = atoi(config["samplecount"].c_str());
 	if (config.find("acklimit") != config.end()) ack_limit = atof(config["acklimit"].c_str());
@@ -886,6 +937,17 @@ std::string dccCommand(std::string cmd)
 					millisec = MILLISEC_INTERVAL;
 					vc.unlock();
 					response <<  "<p0 MAIN>\n";
+					
+					if (uptimelogging) {
+						char fname[256];
+						time_t rawtime;
+						struct tm *ftime;
+						time( &rawtime );
+						ftime = localtime( &rawtime );
+						strftime(fname,256,"%Y-%m-%d_%H:%M:%S.txt", ftime);
+						roster.writeAndResetUptimes(uptimefilepath+std::string(fname));
+					}
+					
 				}
 			}
 			else if (cmdstring[1] == "PROG") {
@@ -920,6 +982,17 @@ std::string dccCommand(std::string cmd)
 					t = NULL;
 				}
 				response <<  "<p0>\n";
+
+				if (uptimelogging) {
+					char fname[256];
+					time_t rawtime;
+					struct tm *ftime;
+					time( &rawtime );
+					ftime = localtime( &rawtime );
+					strftime(fname,256,"%Y-%m-%d_%H:%M:%S.txt", ftime);
+					roster.writeAndResetUptimes(uptimefilepath+std::string(fname));
+				}
+				
 			}
 			else if (programming) {
 				programming = false;
